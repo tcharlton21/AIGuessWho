@@ -1,0 +1,41 @@
+<html>
+<head>
+<title>completion.sh</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #a9b7c6; font-weight: bold;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #6a8759;}
+.s3 { color: #cc7832;}
+.s4 { color: #6897bb;}
+.s5 { color: #808080;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+completion.sh</font>
+</center></td></tr></table>
+<pre><span class="s0">#!/usr/bin/env bash</span>
+<span class="s1">_tqdm(){</span>
+  <span class="s1">local cur prv</span>
+  <span class="s1">cur=</span><span class="s2">&quot;</span><span class="s3">$</span><span class="s1">{COMP_WORDS[COMP_CWORD]}</span><span class="s2">&quot;</span>
+  <span class="s1">prv=</span><span class="s2">&quot;</span><span class="s3">$</span><span class="s1">{COMP_WORDS[COMP_CWORD - </span><span class="s4">1</span><span class="s1">]}</span><span class="s2">&quot;</span>
+
+  <span class="s3">case $</span><span class="s1">{prv} </span><span class="s3">in</span>
+  <span class="s1">--bar_format|--buf_size|--colour|--comppath|--delay|--delim|--desc|--initial|--lock_args|--manpath|--maxinterval|--mininterval|--miniters|--ncols|--nrows|--position|--postfix|--smoothing|--total|--unit|--unit_divisor)</span>
+    <span class="s5"># await user input</span>
+    <span class="s3">;;</span>
+  <span class="s2">&quot;--log&quot;</span><span class="s1">)</span>
+    <span class="s1">COMPREPLY=(</span><span class="s3">$</span><span class="s1">(compgen -W       </span><span class="s2">'CRITICAL FATAL ERROR WARN WARNING INFO DEBUG NOTSET' </span><span class="s1">-- </span><span class="s3">$</span><span class="s1">{cur}))</span>
+    <span class="s3">;;</span>
+  <span class="s1">*)</span>
+    <span class="s1">COMPREPLY=(</span><span class="s3">$</span><span class="s1">(compgen -W </span><span class="s2">'--ascii --bar_format --buf_size --bytes --colour --comppath --delay --delim --desc --disable --dynamic_ncols --help --initial --leave --lock_args --log --manpath --maxinterval --mininterval --miniters --ncols --nrows --null --position --postfix --smoothing --tee --total --unit --unit_divisor --unit_scale --update --update_to --version --write_bytes -h -v' </span><span class="s1">-- </span><span class="s3">$</span><span class="s1">{cur}))</span>
+    <span class="s3">;;</span>
+  <span class="s3">esac</span>
+<span class="s1">}</span>
+<span class="s1">complete -F _tqdm tqdm</span>
+</pre>
+</body>
+</html>

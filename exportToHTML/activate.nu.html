@@ -1,0 +1,58 @@
+<html>
+<head>
+<title>activate.nu</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #a9b7c6;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+activate.nu</font>
+</center></td></tr></table>
+<pre><span class="s0"># Setting all environment variables for the venv</span>
+<span class="s0">let path-name = (if ((sys).host.name == &quot;Windows&quot;) { &quot;Path&quot; } { &quot;PATH&quot; })</span>
+<span class="s0">let virtual-env = &quot;/Users/trentcharlton/Downloads/GuessWhoSetImages/venv&quot;</span>
+<span class="s0">let bin = &quot;bin&quot;</span>
+<span class="s0">let path-sep = &quot;:&quot;</span>
+
+<span class="s0">let old-path = ($nu.path | str collect ($path-sep))</span>
+
+<span class="s0">let venv-path = ([$virtual-env $bin] | path join)</span>
+<span class="s0">let new-path = ($nu.path | prepend $venv-path | str collect ($path-sep))</span>
+
+<span class="s0"># environment variables that will be batched loaded to the virtual env</span>
+<span class="s0">let new-env = ([</span>
+    <span class="s0">[name, value];</span>
+    <span class="s0">[$path-name $new-path]</span>
+    <span class="s0">[_OLD_VIRTUAL_PATH $old-path]</span>
+    <span class="s0">[VIRTUAL_ENV $virtual-env]</span>
+<span class="s0">])</span>
+
+<span class="s0">load-env $new-env</span>
+
+<span class="s0"># Creating the new prompt for the session</span>
+<span class="s0">let virtual_prompt = (if (&quot;&quot; != &quot;&quot;) {</span>
+    <span class="s0">&quot;() &quot;</span>
+<span class="s0">} {</span>
+    <span class="s0">(build-string '(' ($virtual-env | path basename) ') ')</span>
+<span class="s0">}</span>
+<span class="s0">)</span>
+
+<span class="s0"># If there is no default prompt, then only the env is printed in the prompt</span>
+<span class="s0">let new_prompt = (if ( config | select prompt | empty? ) {</span>
+    <span class="s0">($&quot;build-string '($virtual_prompt)'&quot;)</span>
+<span class="s0">} {</span>
+    <span class="s0">($&quot;build-string '($virtual_prompt)' (config get prompt | str find-replace &quot;build-string&quot; &quot;&quot;)&quot;)</span>
+<span class="s0">})</span>
+<span class="s0">let-env PROMPT_COMMAND = $new_prompt</span>
+
+<span class="s0"># We are using alias as the function definitions because only aliases can be</span>
+<span class="s0"># removed from the scope</span>
+<span class="s0">alias pydoc = python -m pydoc</span>
+<span class="s0">alias deactivate = source &quot;/Users/trentcharlton/Downloads/GuessWhoSetImages/venv/bin/deactivate.nu&quot;</span>
+</pre>
+</body>
+</html>

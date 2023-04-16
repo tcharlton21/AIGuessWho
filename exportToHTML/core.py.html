@@ -1,0 +1,423 @@
+<html>
+<head>
+<title>core.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cc7832;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #6897bb;}
+.s3 { color: #a5c261;}
+.s4 { color: #6a8759;}
+.s5 { color: #629755; font-style: italic;}
+.s6 { color: #808080;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+core.py</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">. </span><span class="s0">import </span><span class="s1">idnadata</span>
+<span class="s0">import </span><span class="s1">bisect</span>
+<span class="s0">import </span><span class="s1">unicodedata</span>
+<span class="s0">import </span><span class="s1">re</span>
+<span class="s0">from </span><span class="s1">typing </span><span class="s0">import </span><span class="s1">Union</span><span class="s0">, </span><span class="s1">Optional</span>
+<span class="s0">from </span><span class="s1">.intranges </span><span class="s0">import </span><span class="s1">intranges_contain</span>
+
+<span class="s1">_virama_combining_class = </span><span class="s2">9</span>
+<span class="s1">_alabel_prefix = </span><span class="s3">b'xn--'</span>
+<span class="s1">_unicode_dots_re = re.compile(</span><span class="s4">'[</span><span class="s0">\u002e\u3002\uff0e\uff61</span><span class="s4">]'</span><span class="s1">)</span>
+
+<span class="s0">class </span><span class="s1">IDNAError(UnicodeError):</span>
+    <span class="s5">&quot;&quot;&quot; Base exception for all IDNA-encoding related problems &quot;&quot;&quot;</span>
+    <span class="s0">pass</span>
+
+
+<span class="s0">class </span><span class="s1">IDNABidiError(IDNAError):</span>
+    <span class="s5">&quot;&quot;&quot; Exception when bidirectional requirements are not satisfied &quot;&quot;&quot;</span>
+    <span class="s0">pass</span>
+
+
+<span class="s0">class </span><span class="s1">InvalidCodepoint(IDNAError):</span>
+    <span class="s5">&quot;&quot;&quot; Exception when a disallowed or unallocated codepoint is used &quot;&quot;&quot;</span>
+    <span class="s0">pass</span>
+
+
+<span class="s0">class </span><span class="s1">InvalidCodepointContext(IDNAError):</span>
+    <span class="s5">&quot;&quot;&quot; Exception when the codepoint is not valid in the context it is used &quot;&quot;&quot;</span>
+    <span class="s0">pass</span>
+
+
+<span class="s0">def </span><span class="s1">_combining_class(cp: int) -&gt; int:</span>
+    <span class="s1">v = unicodedata.combining(chr(cp))</span>
+    <span class="s0">if </span><span class="s1">v == </span><span class="s2">0</span><span class="s1">:</span>
+        <span class="s0">if not </span><span class="s1">unicodedata.name(chr(cp)):</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s4">'Unknown character in unicodedata'</span><span class="s1">)</span>
+    <span class="s0">return </span><span class="s1">v</span>
+
+<span class="s0">def </span><span class="s1">_is_script(cp: str</span><span class="s0">, </span><span class="s1">script: str) -&gt; bool:</span>
+    <span class="s0">return </span><span class="s1">intranges_contain(ord(cp)</span><span class="s0">, </span><span class="s1">idnadata.scripts[script])</span>
+
+<span class="s0">def </span><span class="s1">_punycode(s: str) -&gt; bytes:</span>
+    <span class="s0">return </span><span class="s1">s.encode(</span><span class="s4">'punycode'</span><span class="s1">)</span>
+
+<span class="s0">def </span><span class="s1">_unot(s: int) -&gt; str:</span>
+    <span class="s0">return </span><span class="s4">'U+{:04X}'</span><span class="s1">.format(s)</span>
+
+
+<span class="s0">def </span><span class="s1">valid_label_length(label: Union[bytes</span><span class="s0">, </span><span class="s1">str]) -&gt; bool:</span>
+    <span class="s0">if </span><span class="s1">len(label) &gt; </span><span class="s2">63</span><span class="s1">:</span>
+        <span class="s0">return False</span>
+    <span class="s0">return True</span>
+
+
+<span class="s0">def </span><span class="s1">valid_string_length(label: Union[bytes</span><span class="s0">, </span><span class="s1">str]</span><span class="s0">, </span><span class="s1">trailing_dot: bool) -&gt; bool:</span>
+    <span class="s0">if </span><span class="s1">len(label) &gt; (</span><span class="s2">254 </span><span class="s0">if </span><span class="s1">trailing_dot </span><span class="s0">else </span><span class="s2">253</span><span class="s1">):</span>
+        <span class="s0">return False</span>
+    <span class="s0">return True</span>
+
+
+<span class="s0">def </span><span class="s1">check_bidi(label: str</span><span class="s0">, </span><span class="s1">check_ltr: bool = </span><span class="s0">False</span><span class="s1">) -&gt; bool:</span>
+    <span class="s6"># Bidi rules should only be applied if string contains RTL characters</span>
+    <span class="s1">bidi_label = </span><span class="s0">False</span>
+    <span class="s0">for </span><span class="s1">(idx</span><span class="s0">, </span><span class="s1">cp) </span><span class="s0">in </span><span class="s1">enumerate(label</span><span class="s0">, </span><span class="s2">1</span><span class="s1">):</span>
+        <span class="s1">direction = unicodedata.bidirectional(cp)</span>
+        <span class="s0">if </span><span class="s1">direction == </span><span class="s4">''</span><span class="s1">:</span>
+            <span class="s6"># String likely comes from a newer version of Unicode</span>
+            <span class="s0">raise </span><span class="s1">IDNABidiError(</span><span class="s4">'Unknown directionality in label {} at position {}'</span><span class="s1">.format(repr(label)</span><span class="s0">, </span><span class="s1">idx))</span>
+        <span class="s0">if </span><span class="s1">direction </span><span class="s0">in </span><span class="s1">[</span><span class="s4">'R'</span><span class="s0">, </span><span class="s4">'AL'</span><span class="s0">, </span><span class="s4">'AN'</span><span class="s1">]:</span>
+            <span class="s1">bidi_label = </span><span class="s0">True</span>
+    <span class="s0">if not </span><span class="s1">bidi_label </span><span class="s0">and not </span><span class="s1">check_ltr:</span>
+        <span class="s0">return True</span>
+
+    <span class="s6"># Bidi rule 1</span>
+    <span class="s1">direction = unicodedata.bidirectional(label[</span><span class="s2">0</span><span class="s1">])</span>
+    <span class="s0">if </span><span class="s1">direction </span><span class="s0">in </span><span class="s1">[</span><span class="s4">'R'</span><span class="s0">, </span><span class="s4">'AL'</span><span class="s1">]:</span>
+        <span class="s1">rtl = </span><span class="s0">True</span>
+    <span class="s0">elif </span><span class="s1">direction == </span><span class="s4">'L'</span><span class="s1">:</span>
+        <span class="s1">rtl = </span><span class="s0">False</span>
+    <span class="s0">else</span><span class="s1">:</span>
+        <span class="s0">raise </span><span class="s1">IDNABidiError(</span><span class="s4">'First codepoint in label {} must be directionality L, R or AL'</span><span class="s1">.format(repr(label)))</span>
+
+    <span class="s1">valid_ending = </span><span class="s0">False</span>
+    <span class="s1">number_type = </span><span class="s0">None  </span><span class="s6"># type: Optional[str]</span>
+    <span class="s0">for </span><span class="s1">(idx</span><span class="s0">, </span><span class="s1">cp) </span><span class="s0">in </span><span class="s1">enumerate(label</span><span class="s0">, </span><span class="s2">1</span><span class="s1">):</span>
+        <span class="s1">direction = unicodedata.bidirectional(cp)</span>
+
+        <span class="s0">if </span><span class="s1">rtl:</span>
+            <span class="s6"># Bidi rule 2</span>
+            <span class="s0">if not </span><span class="s1">direction </span><span class="s0">in </span><span class="s1">[</span><span class="s4">'R'</span><span class="s0">, </span><span class="s4">'AL'</span><span class="s0">, </span><span class="s4">'AN'</span><span class="s0">, </span><span class="s4">'EN'</span><span class="s0">, </span><span class="s4">'ES'</span><span class="s0">, </span><span class="s4">'CS'</span><span class="s0">, </span><span class="s4">'ET'</span><span class="s0">, </span><span class="s4">'ON'</span><span class="s0">, </span><span class="s4">'BN'</span><span class="s0">, </span><span class="s4">'NSM'</span><span class="s1">]:</span>
+                <span class="s0">raise </span><span class="s1">IDNABidiError(</span><span class="s4">'Invalid direction for codepoint at position {} in a right-to-left label'</span><span class="s1">.format(idx))</span>
+            <span class="s6"># Bidi rule 3</span>
+            <span class="s0">if </span><span class="s1">direction </span><span class="s0">in </span><span class="s1">[</span><span class="s4">'R'</span><span class="s0">, </span><span class="s4">'AL'</span><span class="s0">, </span><span class="s4">'EN'</span><span class="s0">, </span><span class="s4">'AN'</span><span class="s1">]:</span>
+                <span class="s1">valid_ending = </span><span class="s0">True</span>
+            <span class="s0">elif </span><span class="s1">direction != </span><span class="s4">'NSM'</span><span class="s1">:</span>
+                <span class="s1">valid_ending = </span><span class="s0">False</span>
+            <span class="s6"># Bidi rule 4</span>
+            <span class="s0">if </span><span class="s1">direction </span><span class="s0">in </span><span class="s1">[</span><span class="s4">'AN'</span><span class="s0">, </span><span class="s4">'EN'</span><span class="s1">]:</span>
+                <span class="s0">if not </span><span class="s1">number_type:</span>
+                    <span class="s1">number_type = direction</span>
+                <span class="s0">else</span><span class="s1">:</span>
+                    <span class="s0">if </span><span class="s1">number_type != direction:</span>
+                        <span class="s0">raise </span><span class="s1">IDNABidiError(</span><span class="s4">'Can not mix numeral types in a right-to-left label'</span><span class="s1">)</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s6"># Bidi rule 5</span>
+            <span class="s0">if not </span><span class="s1">direction </span><span class="s0">in </span><span class="s1">[</span><span class="s4">'L'</span><span class="s0">, </span><span class="s4">'EN'</span><span class="s0">, </span><span class="s4">'ES'</span><span class="s0">, </span><span class="s4">'CS'</span><span class="s0">, </span><span class="s4">'ET'</span><span class="s0">, </span><span class="s4">'ON'</span><span class="s0">, </span><span class="s4">'BN'</span><span class="s0">, </span><span class="s4">'NSM'</span><span class="s1">]:</span>
+                <span class="s0">raise </span><span class="s1">IDNABidiError(</span><span class="s4">'Invalid direction for codepoint at position {} in a left-to-right label'</span><span class="s1">.format(idx))</span>
+            <span class="s6"># Bidi rule 6</span>
+            <span class="s0">if </span><span class="s1">direction </span><span class="s0">in </span><span class="s1">[</span><span class="s4">'L'</span><span class="s0">, </span><span class="s4">'EN'</span><span class="s1">]:</span>
+                <span class="s1">valid_ending = </span><span class="s0">True</span>
+            <span class="s0">elif </span><span class="s1">direction != </span><span class="s4">'NSM'</span><span class="s1">:</span>
+                <span class="s1">valid_ending = </span><span class="s0">False</span>
+
+    <span class="s0">if not </span><span class="s1">valid_ending:</span>
+        <span class="s0">raise </span><span class="s1">IDNABidiError(</span><span class="s4">'Label ends with illegal codepoint directionality'</span><span class="s1">)</span>
+
+    <span class="s0">return True</span>
+
+
+<span class="s0">def </span><span class="s1">check_initial_combiner(label: str) -&gt; bool:</span>
+    <span class="s0">if </span><span class="s1">unicodedata.category(label[</span><span class="s2">0</span><span class="s1">])[</span><span class="s2">0</span><span class="s1">] == </span><span class="s4">'M'</span><span class="s1">:</span>
+        <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Label begins with an illegal combining character'</span><span class="s1">)</span>
+    <span class="s0">return True</span>
+
+
+<span class="s0">def </span><span class="s1">check_hyphen_ok(label: str) -&gt; bool:</span>
+    <span class="s0">if </span><span class="s1">label[</span><span class="s2">2</span><span class="s1">:</span><span class="s2">4</span><span class="s1">] == </span><span class="s4">'--'</span><span class="s1">:</span>
+        <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Label has disallowed hyphens in 3rd and 4th position'</span><span class="s1">)</span>
+    <span class="s0">if </span><span class="s1">label[</span><span class="s2">0</span><span class="s1">] == </span><span class="s4">'-' </span><span class="s0">or </span><span class="s1">label[-</span><span class="s2">1</span><span class="s1">] == </span><span class="s4">'-'</span><span class="s1">:</span>
+        <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Label must not start or end with a hyphen'</span><span class="s1">)</span>
+    <span class="s0">return True</span>
+
+
+<span class="s0">def </span><span class="s1">check_nfc(label: str) -&gt; </span><span class="s0">None</span><span class="s1">:</span>
+    <span class="s0">if </span><span class="s1">unicodedata.normalize(</span><span class="s4">'NFC'</span><span class="s0">, </span><span class="s1">label) != label:</span>
+        <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Label must be in Normalization Form C'</span><span class="s1">)</span>
+
+
+<span class="s0">def </span><span class="s1">valid_contextj(label: str</span><span class="s0">, </span><span class="s1">pos: int) -&gt; bool:</span>
+    <span class="s1">cp_value = ord(label[pos])</span>
+
+    <span class="s0">if </span><span class="s1">cp_value == </span><span class="s2">0x200c</span><span class="s1">:</span>
+
+        <span class="s0">if </span><span class="s1">pos &gt; </span><span class="s2">0</span><span class="s1">:</span>
+            <span class="s0">if </span><span class="s1">_combining_class(ord(label[pos - </span><span class="s2">1</span><span class="s1">])) == _virama_combining_class:</span>
+                <span class="s0">return True</span>
+
+        <span class="s1">ok = </span><span class="s0">False</span>
+        <span class="s0">for </span><span class="s1">i </span><span class="s0">in </span><span class="s1">range(pos-</span><span class="s2">1</span><span class="s0">, </span><span class="s1">-</span><span class="s2">1</span><span class="s0">, </span><span class="s1">-</span><span class="s2">1</span><span class="s1">):</span>
+            <span class="s1">joining_type = idnadata.joining_types.get(ord(label[i]))</span>
+            <span class="s0">if </span><span class="s1">joining_type == ord(</span><span class="s4">'T'</span><span class="s1">):</span>
+                <span class="s0">continue</span>
+            <span class="s0">if </span><span class="s1">joining_type </span><span class="s0">in </span><span class="s1">[ord(</span><span class="s4">'L'</span><span class="s1">)</span><span class="s0">, </span><span class="s1">ord(</span><span class="s4">'D'</span><span class="s1">)]:</span>
+                <span class="s1">ok = </span><span class="s0">True</span>
+                <span class="s0">break</span>
+
+        <span class="s0">if not </span><span class="s1">ok:</span>
+            <span class="s0">return False</span>
+
+        <span class="s1">ok = </span><span class="s0">False</span>
+        <span class="s0">for </span><span class="s1">i </span><span class="s0">in </span><span class="s1">range(pos+</span><span class="s2">1</span><span class="s0">, </span><span class="s1">len(label)):</span>
+            <span class="s1">joining_type = idnadata.joining_types.get(ord(label[i]))</span>
+            <span class="s0">if </span><span class="s1">joining_type == ord(</span><span class="s4">'T'</span><span class="s1">):</span>
+                <span class="s0">continue</span>
+            <span class="s0">if </span><span class="s1">joining_type </span><span class="s0">in </span><span class="s1">[ord(</span><span class="s4">'R'</span><span class="s1">)</span><span class="s0">, </span><span class="s1">ord(</span><span class="s4">'D'</span><span class="s1">)]:</span>
+                <span class="s1">ok = </span><span class="s0">True</span>
+                <span class="s0">break</span>
+        <span class="s0">return </span><span class="s1">ok</span>
+
+    <span class="s0">if </span><span class="s1">cp_value == </span><span class="s2">0x200d</span><span class="s1">:</span>
+
+        <span class="s0">if </span><span class="s1">pos &gt; </span><span class="s2">0</span><span class="s1">:</span>
+            <span class="s0">if </span><span class="s1">_combining_class(ord(label[pos - </span><span class="s2">1</span><span class="s1">])) == _virama_combining_class:</span>
+                <span class="s0">return True</span>
+        <span class="s0">return False</span>
+
+    <span class="s0">else</span><span class="s1">:</span>
+
+        <span class="s0">return False</span>
+
+
+<span class="s0">def </span><span class="s1">valid_contexto(label: str</span><span class="s0">, </span><span class="s1">pos: int</span><span class="s0">, </span><span class="s1">exception: bool = </span><span class="s0">False</span><span class="s1">) -&gt; bool:</span>
+    <span class="s1">cp_value = ord(label[pos])</span>
+
+    <span class="s0">if </span><span class="s1">cp_value == </span><span class="s2">0x00b7</span><span class="s1">:</span>
+        <span class="s0">if </span><span class="s2">0 </span><span class="s1">&lt; pos &lt; len(label)-</span><span class="s2">1</span><span class="s1">:</span>
+            <span class="s0">if </span><span class="s1">ord(label[pos - </span><span class="s2">1</span><span class="s1">]) == </span><span class="s2">0x006c </span><span class="s0">and </span><span class="s1">ord(label[pos + </span><span class="s2">1</span><span class="s1">]) == </span><span class="s2">0x006c</span><span class="s1">:</span>
+                <span class="s0">return True</span>
+        <span class="s0">return False</span>
+
+    <span class="s0">elif </span><span class="s1">cp_value == </span><span class="s2">0x0375</span><span class="s1">:</span>
+        <span class="s0">if </span><span class="s1">pos &lt; len(label)-</span><span class="s2">1 </span><span class="s0">and </span><span class="s1">len(label) &gt; </span><span class="s2">1</span><span class="s1">:</span>
+            <span class="s0">return </span><span class="s1">_is_script(label[pos + </span><span class="s2">1</span><span class="s1">]</span><span class="s0">, </span><span class="s4">'Greek'</span><span class="s1">)</span>
+        <span class="s0">return False</span>
+
+    <span class="s0">elif </span><span class="s1">cp_value == </span><span class="s2">0x05f3 </span><span class="s0">or </span><span class="s1">cp_value == </span><span class="s2">0x05f4</span><span class="s1">:</span>
+        <span class="s0">if </span><span class="s1">pos &gt; </span><span class="s2">0</span><span class="s1">:</span>
+            <span class="s0">return </span><span class="s1">_is_script(label[pos - </span><span class="s2">1</span><span class="s1">]</span><span class="s0">, </span><span class="s4">'Hebrew'</span><span class="s1">)</span>
+        <span class="s0">return False</span>
+
+    <span class="s0">elif </span><span class="s1">cp_value == </span><span class="s2">0x30fb</span><span class="s1">:</span>
+        <span class="s0">for </span><span class="s1">cp </span><span class="s0">in </span><span class="s1">label:</span>
+            <span class="s0">if </span><span class="s1">cp == </span><span class="s4">'</span><span class="s0">\u30fb</span><span class="s4">'</span><span class="s1">:</span>
+                <span class="s0">continue</span>
+            <span class="s0">if </span><span class="s1">_is_script(cp</span><span class="s0">, </span><span class="s4">'Hiragana'</span><span class="s1">) </span><span class="s0">or </span><span class="s1">_is_script(cp</span><span class="s0">, </span><span class="s4">'Katakana'</span><span class="s1">) </span><span class="s0">or </span><span class="s1">_is_script(cp</span><span class="s0">, </span><span class="s4">'Han'</span><span class="s1">):</span>
+                <span class="s0">return True</span>
+        <span class="s0">return False</span>
+
+    <span class="s0">elif </span><span class="s2">0x660 </span><span class="s1">&lt;= cp_value &lt;= </span><span class="s2">0x669</span><span class="s1">:</span>
+        <span class="s0">for </span><span class="s1">cp </span><span class="s0">in </span><span class="s1">label:</span>
+            <span class="s0">if </span><span class="s2">0x6f0 </span><span class="s1">&lt;= ord(cp) &lt;= </span><span class="s2">0x06f9</span><span class="s1">:</span>
+                <span class="s0">return False</span>
+        <span class="s0">return True</span>
+
+    <span class="s0">elif </span><span class="s2">0x6f0 </span><span class="s1">&lt;= cp_value &lt;= </span><span class="s2">0x6f9</span><span class="s1">:</span>
+        <span class="s0">for </span><span class="s1">cp </span><span class="s0">in </span><span class="s1">label:</span>
+            <span class="s0">if </span><span class="s2">0x660 </span><span class="s1">&lt;= ord(cp) &lt;= </span><span class="s2">0x0669</span><span class="s1">:</span>
+                <span class="s0">return False</span>
+        <span class="s0">return True</span>
+
+    <span class="s0">return False</span>
+
+
+<span class="s0">def </span><span class="s1">check_label(label: Union[str</span><span class="s0">, </span><span class="s1">bytes</span><span class="s0">, </span><span class="s1">bytearray]) -&gt; </span><span class="s0">None</span><span class="s1">:</span>
+    <span class="s0">if </span><span class="s1">isinstance(label</span><span class="s0">, </span><span class="s1">(bytes</span><span class="s0">, </span><span class="s1">bytearray)):</span>
+        <span class="s1">label = label.decode(</span><span class="s4">'utf-8'</span><span class="s1">)</span>
+    <span class="s0">if </span><span class="s1">len(label) == </span><span class="s2">0</span><span class="s1">:</span>
+        <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Empty Label'</span><span class="s1">)</span>
+
+    <span class="s1">check_nfc(label)</span>
+    <span class="s1">check_hyphen_ok(label)</span>
+    <span class="s1">check_initial_combiner(label)</span>
+
+    <span class="s0">for </span><span class="s1">(pos</span><span class="s0">, </span><span class="s1">cp) </span><span class="s0">in </span><span class="s1">enumerate(label):</span>
+        <span class="s1">cp_value = ord(cp)</span>
+        <span class="s0">if </span><span class="s1">intranges_contain(cp_value</span><span class="s0">, </span><span class="s1">idnadata.codepoint_classes[</span><span class="s4">'PVALID'</span><span class="s1">]):</span>
+            <span class="s0">continue</span>
+        <span class="s0">elif </span><span class="s1">intranges_contain(cp_value</span><span class="s0">, </span><span class="s1">idnadata.codepoint_classes[</span><span class="s4">'CONTEXTJ'</span><span class="s1">]):</span>
+            <span class="s0">try</span><span class="s1">:</span>
+                <span class="s0">if not </span><span class="s1">valid_contextj(label</span><span class="s0">, </span><span class="s1">pos):</span>
+                    <span class="s0">raise </span><span class="s1">InvalidCodepointContext(</span><span class="s4">'Joiner {} not allowed at position {} in {}'</span><span class="s1">.format(</span>
+                        <span class="s1">_unot(cp_value)</span><span class="s0">, </span><span class="s1">pos+</span><span class="s2">1</span><span class="s0">, </span><span class="s1">repr(label)))</span>
+            <span class="s0">except </span><span class="s1">ValueError:</span>
+                <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Unknown codepoint adjacent to joiner {} at position {} in {}'</span><span class="s1">.format(</span>
+                    <span class="s1">_unot(cp_value)</span><span class="s0">, </span><span class="s1">pos+</span><span class="s2">1</span><span class="s0">, </span><span class="s1">repr(label)))</span>
+        <span class="s0">elif </span><span class="s1">intranges_contain(cp_value</span><span class="s0">, </span><span class="s1">idnadata.codepoint_classes[</span><span class="s4">'CONTEXTO'</span><span class="s1">]):</span>
+            <span class="s0">if not </span><span class="s1">valid_contexto(label</span><span class="s0">, </span><span class="s1">pos):</span>
+                <span class="s0">raise </span><span class="s1">InvalidCodepointContext(</span><span class="s4">'Codepoint {} not allowed at position {} in {}'</span><span class="s1">.format(_unot(cp_value)</span><span class="s0">, </span><span class="s1">pos+</span><span class="s2">1</span><span class="s0">, </span><span class="s1">repr(label)))</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s0">raise </span><span class="s1">InvalidCodepoint(</span><span class="s4">'Codepoint {} at position {} of {} not allowed'</span><span class="s1">.format(_unot(cp_value)</span><span class="s0">, </span><span class="s1">pos+</span><span class="s2">1</span><span class="s0">, </span><span class="s1">repr(label)))</span>
+
+    <span class="s1">check_bidi(label)</span>
+
+
+<span class="s0">def </span><span class="s1">alabel(label: str) -&gt; bytes:</span>
+    <span class="s0">try</span><span class="s1">:</span>
+        <span class="s1">label_bytes = label.encode(</span><span class="s4">'ascii'</span><span class="s1">)</span>
+        <span class="s1">ulabel(label_bytes)</span>
+        <span class="s0">if not </span><span class="s1">valid_label_length(label_bytes):</span>
+            <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Label too long'</span><span class="s1">)</span>
+        <span class="s0">return </span><span class="s1">label_bytes</span>
+    <span class="s0">except </span><span class="s1">UnicodeEncodeError:</span>
+        <span class="s0">pass</span>
+
+    <span class="s0">if not </span><span class="s1">label:</span>
+        <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'No Input'</span><span class="s1">)</span>
+
+    <span class="s1">label = str(label)</span>
+    <span class="s1">check_label(label)</span>
+    <span class="s1">label_bytes = _punycode(label)</span>
+    <span class="s1">label_bytes = _alabel_prefix + label_bytes</span>
+
+    <span class="s0">if not </span><span class="s1">valid_label_length(label_bytes):</span>
+        <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Label too long'</span><span class="s1">)</span>
+
+    <span class="s0">return </span><span class="s1">label_bytes</span>
+
+
+<span class="s0">def </span><span class="s1">ulabel(label: Union[str</span><span class="s0">, </span><span class="s1">bytes</span><span class="s0">, </span><span class="s1">bytearray]) -&gt; str:</span>
+    <span class="s0">if not </span><span class="s1">isinstance(label</span><span class="s0">, </span><span class="s1">(bytes</span><span class="s0">, </span><span class="s1">bytearray)):</span>
+        <span class="s0">try</span><span class="s1">:</span>
+            <span class="s1">label_bytes = label.encode(</span><span class="s4">'ascii'</span><span class="s1">)</span>
+        <span class="s0">except </span><span class="s1">UnicodeEncodeError:</span>
+            <span class="s1">check_label(label)</span>
+            <span class="s0">return </span><span class="s1">label</span>
+    <span class="s0">else</span><span class="s1">:</span>
+        <span class="s1">label_bytes = label</span>
+
+    <span class="s1">label_bytes = label_bytes.lower()</span>
+    <span class="s0">if </span><span class="s1">label_bytes.startswith(_alabel_prefix):</span>
+        <span class="s1">label_bytes = label_bytes[len(_alabel_prefix):]</span>
+        <span class="s0">if not </span><span class="s1">label_bytes:</span>
+            <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Malformed A-label, no Punycode eligible content found'</span><span class="s1">)</span>
+        <span class="s0">if </span><span class="s1">label_bytes.decode(</span><span class="s4">'ascii'</span><span class="s1">)[-</span><span class="s2">1</span><span class="s1">] == </span><span class="s4">'-'</span><span class="s1">:</span>
+            <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'A-label must not end with a hyphen'</span><span class="s1">)</span>
+    <span class="s0">else</span><span class="s1">:</span>
+        <span class="s1">check_label(label_bytes)</span>
+        <span class="s0">return </span><span class="s1">label_bytes.decode(</span><span class="s4">'ascii'</span><span class="s1">)</span>
+
+    <span class="s0">try</span><span class="s1">:</span>
+        <span class="s1">label = label_bytes.decode(</span><span class="s4">'punycode'</span><span class="s1">)</span>
+    <span class="s0">except </span><span class="s1">UnicodeError:</span>
+        <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Invalid A-label'</span><span class="s1">)</span>
+    <span class="s1">check_label(label)</span>
+    <span class="s0">return </span><span class="s1">label</span>
+
+
+<span class="s0">def </span><span class="s1">uts46_remap(domain: str</span><span class="s0">, </span><span class="s1">std3_rules: bool = </span><span class="s0">True, </span><span class="s1">transitional: bool = </span><span class="s0">False</span><span class="s1">) -&gt; str:</span>
+    <span class="s5">&quot;&quot;&quot;Re-map the characters in the string according to UTS46 processing.&quot;&quot;&quot;</span>
+    <span class="s0">from </span><span class="s1">.uts46data </span><span class="s0">import </span><span class="s1">uts46data</span>
+    <span class="s1">output = </span><span class="s4">''</span>
+
+    <span class="s0">for </span><span class="s1">pos</span><span class="s0">, </span><span class="s1">char </span><span class="s0">in </span><span class="s1">enumerate(domain):</span>
+        <span class="s1">code_point = ord(char)</span>
+        <span class="s0">try</span><span class="s1">:</span>
+            <span class="s1">uts46row = uts46data[code_point </span><span class="s0">if </span><span class="s1">code_point &lt; </span><span class="s2">256 </span><span class="s0">else</span>
+                <span class="s1">bisect.bisect_left(uts46data</span><span class="s0">, </span><span class="s1">(code_point</span><span class="s0">, </span><span class="s4">'Z'</span><span class="s1">)) - </span><span class="s2">1</span><span class="s1">]</span>
+            <span class="s1">status = uts46row[</span><span class="s2">1</span><span class="s1">]</span>
+            <span class="s1">replacement = </span><span class="s0">None  </span><span class="s6"># type: Optional[str]</span>
+            <span class="s0">if </span><span class="s1">len(uts46row) == </span><span class="s2">3</span><span class="s1">:</span>
+                <span class="s1">replacement = uts46row[</span><span class="s2">2</span><span class="s1">]  </span><span class="s6"># type: ignore</span>
+            <span class="s0">if </span><span class="s1">(status == </span><span class="s4">'V' </span><span class="s0">or</span>
+                    <span class="s1">(status == </span><span class="s4">'D' </span><span class="s0">and not </span><span class="s1">transitional) </span><span class="s0">or</span>
+                    <span class="s1">(status == </span><span class="s4">'3' </span><span class="s0">and not </span><span class="s1">std3_rules </span><span class="s0">and </span><span class="s1">replacement </span><span class="s0">is None</span><span class="s1">)):</span>
+                <span class="s1">output += char</span>
+            <span class="s0">elif </span><span class="s1">replacement </span><span class="s0">is not None and </span><span class="s1">(status == </span><span class="s4">'M' </span><span class="s0">or</span>
+                    <span class="s1">(status == </span><span class="s4">'3' </span><span class="s0">and not </span><span class="s1">std3_rules) </span><span class="s0">or</span>
+                    <span class="s1">(status == </span><span class="s4">'D' </span><span class="s0">and </span><span class="s1">transitional)):</span>
+                <span class="s1">output += replacement</span>
+            <span class="s0">elif </span><span class="s1">status != </span><span class="s4">'I'</span><span class="s1">:</span>
+                <span class="s0">raise </span><span class="s1">IndexError()</span>
+        <span class="s0">except </span><span class="s1">IndexError:</span>
+            <span class="s0">raise </span><span class="s1">InvalidCodepoint(</span>
+                <span class="s4">'Codepoint {} not allowed at position {} in {}'</span><span class="s1">.format(</span>
+                <span class="s1">_unot(code_point)</span><span class="s0">, </span><span class="s1">pos + </span><span class="s2">1</span><span class="s0">, </span><span class="s1">repr(domain)))</span>
+
+    <span class="s0">return </span><span class="s1">unicodedata.normalize(</span><span class="s4">'NFC'</span><span class="s0">, </span><span class="s1">output)</span>
+
+
+<span class="s0">def </span><span class="s1">encode(s: Union[str</span><span class="s0">, </span><span class="s1">bytes</span><span class="s0">, </span><span class="s1">bytearray]</span><span class="s0">, </span><span class="s1">strict: bool = </span><span class="s0">False, </span><span class="s1">uts46: bool = </span><span class="s0">False, </span><span class="s1">std3_rules: bool = </span><span class="s0">False, </span><span class="s1">transitional: bool = </span><span class="s0">False</span><span class="s1">) -&gt; bytes:</span>
+    <span class="s0">if </span><span class="s1">isinstance(s</span><span class="s0">, </span><span class="s1">(bytes</span><span class="s0">, </span><span class="s1">bytearray)):</span>
+        <span class="s0">try</span><span class="s1">:</span>
+            <span class="s1">s = s.decode(</span><span class="s4">'ascii'</span><span class="s1">)</span>
+        <span class="s0">except </span><span class="s1">UnicodeDecodeError:</span>
+            <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'should pass a unicode string to the function rather than a byte string.'</span><span class="s1">)</span>
+    <span class="s0">if </span><span class="s1">uts46:</span>
+        <span class="s1">s = uts46_remap(s</span><span class="s0">, </span><span class="s1">std3_rules</span><span class="s0">, </span><span class="s1">transitional)</span>
+    <span class="s1">trailing_dot = </span><span class="s0">False</span>
+    <span class="s1">result = []</span>
+    <span class="s0">if </span><span class="s1">strict:</span>
+        <span class="s1">labels = s.split(</span><span class="s4">'.'</span><span class="s1">)</span>
+    <span class="s0">else</span><span class="s1">:</span>
+        <span class="s1">labels = _unicode_dots_re.split(s)</span>
+    <span class="s0">if not </span><span class="s1">labels </span><span class="s0">or </span><span class="s1">labels == [</span><span class="s4">''</span><span class="s1">]:</span>
+        <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Empty domain'</span><span class="s1">)</span>
+    <span class="s0">if </span><span class="s1">labels[-</span><span class="s2">1</span><span class="s1">] == </span><span class="s4">''</span><span class="s1">:</span>
+        <span class="s0">del </span><span class="s1">labels[-</span><span class="s2">1</span><span class="s1">]</span>
+        <span class="s1">trailing_dot = </span><span class="s0">True</span>
+    <span class="s0">for </span><span class="s1">label </span><span class="s0">in </span><span class="s1">labels:</span>
+        <span class="s1">s = alabel(label)</span>
+        <span class="s0">if </span><span class="s1">s:</span>
+            <span class="s1">result.append(s)</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Empty label'</span><span class="s1">)</span>
+    <span class="s0">if </span><span class="s1">trailing_dot:</span>
+        <span class="s1">result.append(</span><span class="s3">b''</span><span class="s1">)</span>
+    <span class="s1">s = </span><span class="s3">b'.'</span><span class="s1">.join(result)</span>
+    <span class="s0">if not </span><span class="s1">valid_string_length(s</span><span class="s0">, </span><span class="s1">trailing_dot):</span>
+        <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Domain too long'</span><span class="s1">)</span>
+    <span class="s0">return </span><span class="s1">s</span>
+
+
+<span class="s0">def </span><span class="s1">decode(s: Union[str</span><span class="s0">, </span><span class="s1">bytes</span><span class="s0">, </span><span class="s1">bytearray]</span><span class="s0">, </span><span class="s1">strict: bool = </span><span class="s0">False, </span><span class="s1">uts46: bool = </span><span class="s0">False, </span><span class="s1">std3_rules: bool = </span><span class="s0">False</span><span class="s1">) -&gt; str:</span>
+    <span class="s0">try</span><span class="s1">:</span>
+        <span class="s0">if </span><span class="s1">isinstance(s</span><span class="s0">, </span><span class="s1">(bytes</span><span class="s0">, </span><span class="s1">bytearray)):</span>
+            <span class="s1">s = s.decode(</span><span class="s4">'ascii'</span><span class="s1">)</span>
+    <span class="s0">except </span><span class="s1">UnicodeDecodeError:</span>
+        <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Invalid ASCII in A-label'</span><span class="s1">)</span>
+    <span class="s0">if </span><span class="s1">uts46:</span>
+        <span class="s1">s = uts46_remap(s</span><span class="s0">, </span><span class="s1">std3_rules</span><span class="s0">, False</span><span class="s1">)</span>
+    <span class="s1">trailing_dot = </span><span class="s0">False</span>
+    <span class="s1">result = []</span>
+    <span class="s0">if not </span><span class="s1">strict:</span>
+        <span class="s1">labels = _unicode_dots_re.split(s)</span>
+    <span class="s0">else</span><span class="s1">:</span>
+        <span class="s1">labels = s.split(</span><span class="s4">'.'</span><span class="s1">)</span>
+    <span class="s0">if not </span><span class="s1">labels </span><span class="s0">or </span><span class="s1">labels == [</span><span class="s4">''</span><span class="s1">]:</span>
+        <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Empty domain'</span><span class="s1">)</span>
+    <span class="s0">if not </span><span class="s1">labels[-</span><span class="s2">1</span><span class="s1">]:</span>
+        <span class="s0">del </span><span class="s1">labels[-</span><span class="s2">1</span><span class="s1">]</span>
+        <span class="s1">trailing_dot = </span><span class="s0">True</span>
+    <span class="s0">for </span><span class="s1">label </span><span class="s0">in </span><span class="s1">labels:</span>
+        <span class="s1">s = ulabel(label)</span>
+        <span class="s0">if </span><span class="s1">s:</span>
+            <span class="s1">result.append(s)</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s0">raise </span><span class="s1">IDNAError(</span><span class="s4">'Empty label'</span><span class="s1">)</span>
+    <span class="s0">if </span><span class="s1">trailing_dot:</span>
+        <span class="s1">result.append(</span><span class="s4">''</span><span class="s1">)</span>
+    <span class="s0">return </span><span class="s4">'.'</span><span class="s1">.join(result)</span>
+</pre>
+</body>
+</html>

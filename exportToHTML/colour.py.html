@@ -1,0 +1,1146 @@
+<html>
+<head>
+<title>colour.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #808080;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #629755; font-style: italic;}
+.s3 { color: #cc7832;}
+.s4 { color: #6897bb;}
+.s5 { color: #6a8759;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+colour.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># -*- coding: utf-8 -*-</span>
+<span class="s2">&quot;&quot;&quot;Color Library 
+ 
+.. :doctest: 
+ 
+This module defines several color formats that can be converted to one or 
+another. 
+ 
+Formats 
+------- 
+ 
+HSL: 
+    3-uple of Hue, Saturation, Lightness all between 0.0 and 1.0 
+ 
+RGB: 
+    3-uple of Red, Green, Blue all between 0.0 and 1.0 
+ 
+HEX: 
+    string object beginning with '#' and with red, green, blue value. 
+    This format accept color in 3 or 6 value ex: '#fff' or '#ffffff' 
+ 
+WEB: 
+    string object that defaults to HEX representation or human if possible 
+ 
+Usage 
+----- 
+ 
+Several function exists to convert from one format to another. But all 
+function are not written. So the best way is to use the object Color. 
+ 
+Please see the documentation of this object for more information. 
+ 
+.. note:: Some constants are defined for convenience in HSL, RGB, HEX 
+ 
+&quot;&quot;&quot;</span>
+
+<span class="s3">from </span><span class="s1">__future__ </span><span class="s3">import </span><span class="s1">with_statement</span><span class="s3">, </span><span class="s1">print_function</span>
+
+<span class="s3">import </span><span class="s1">hashlib</span>
+<span class="s3">import </span><span class="s1">re</span>
+<span class="s3">import </span><span class="s1">sys</span>
+
+
+<span class="s0">##</span>
+<span class="s0">## Some Constants</span>
+<span class="s0">##</span>
+
+<span class="s0">## Soften inequalities and some rounding issue based on float</span>
+<span class="s1">FLOAT_ERROR = </span><span class="s4">0.0000005</span>
+
+
+<span class="s1">RGB_TO_COLOR_NAMES = {</span>
+    <span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'Black'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">128</span><span class="s1">): [</span><span class="s5">'Navy'</span><span class="s3">, </span><span class="s5">'NavyBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">139</span><span class="s1">): [</span><span class="s5">'DarkBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">205</span><span class="s1">): [</span><span class="s5">'MediumBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">255</span><span class="s1">): [</span><span class="s5">'Blue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">100</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'DarkGreen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">128</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'Green'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">139</span><span class="s3">, </span><span class="s4">139</span><span class="s1">): [</span><span class="s5">'DarkCyan'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">191</span><span class="s3">, </span><span class="s4">255</span><span class="s1">): [</span><span class="s5">'DeepSkyBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">206</span><span class="s3">, </span><span class="s4">209</span><span class="s1">): [</span><span class="s5">'DarkTurquoise'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">250</span><span class="s3">, </span><span class="s4">154</span><span class="s1">): [</span><span class="s5">'MediumSpringGreen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">255</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'Lime'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">255</span><span class="s3">, </span><span class="s4">127</span><span class="s1">): [</span><span class="s5">'SpringGreen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">255</span><span class="s3">, </span><span class="s4">255</span><span class="s1">): [</span><span class="s5">'Cyan'</span><span class="s3">, </span><span class="s5">'Aqua'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">25</span><span class="s3">, </span><span class="s4">25</span><span class="s3">, </span><span class="s4">112</span><span class="s1">): [</span><span class="s5">'MidnightBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">30</span><span class="s3">, </span><span class="s4">144</span><span class="s3">, </span><span class="s4">255</span><span class="s1">): [</span><span class="s5">'DodgerBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">32</span><span class="s3">, </span><span class="s4">178</span><span class="s3">, </span><span class="s4">170</span><span class="s1">): [</span><span class="s5">'LightSeaGreen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">34</span><span class="s3">, </span><span class="s4">139</span><span class="s3">, </span><span class="s4">34</span><span class="s1">): [</span><span class="s5">'ForestGreen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">46</span><span class="s3">, </span><span class="s4">139</span><span class="s3">, </span><span class="s4">87</span><span class="s1">): [</span><span class="s5">'SeaGreen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">47</span><span class="s3">, </span><span class="s4">79</span><span class="s3">, </span><span class="s4">79</span><span class="s1">): [</span><span class="s5">'DarkSlateGray'</span><span class="s3">, </span><span class="s5">'DarkSlateGrey'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">50</span><span class="s3">, </span><span class="s4">205</span><span class="s3">, </span><span class="s4">50</span><span class="s1">): [</span><span class="s5">'LimeGreen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">60</span><span class="s3">, </span><span class="s4">179</span><span class="s3">, </span><span class="s4">113</span><span class="s1">): [</span><span class="s5">'MediumSeaGreen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">64</span><span class="s3">, </span><span class="s4">224</span><span class="s3">, </span><span class="s4">208</span><span class="s1">): [</span><span class="s5">'Turquoise'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">65</span><span class="s3">, </span><span class="s4">105</span><span class="s3">, </span><span class="s4">225</span><span class="s1">): [</span><span class="s5">'RoyalBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">70</span><span class="s3">, </span><span class="s4">130</span><span class="s3">, </span><span class="s4">180</span><span class="s1">): [</span><span class="s5">'SteelBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">72</span><span class="s3">, </span><span class="s4">61</span><span class="s3">, </span><span class="s4">139</span><span class="s1">): [</span><span class="s5">'DarkSlateBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">72</span><span class="s3">, </span><span class="s4">209</span><span class="s3">, </span><span class="s4">204</span><span class="s1">): [</span><span class="s5">'MediumTurquoise'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">75</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">130</span><span class="s1">): [</span><span class="s5">'Indigo'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">85</span><span class="s3">, </span><span class="s4">107</span><span class="s3">, </span><span class="s4">47</span><span class="s1">): [</span><span class="s5">'DarkOliveGreen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">95</span><span class="s3">, </span><span class="s4">158</span><span class="s3">, </span><span class="s4">160</span><span class="s1">): [</span><span class="s5">'CadetBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">100</span><span class="s3">, </span><span class="s4">149</span><span class="s3">, </span><span class="s4">237</span><span class="s1">): [</span><span class="s5">'CornflowerBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">102</span><span class="s3">, </span><span class="s4">205</span><span class="s3">, </span><span class="s4">170</span><span class="s1">): [</span><span class="s5">'MediumAquamarine'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">105</span><span class="s3">, </span><span class="s4">105</span><span class="s3">, </span><span class="s4">105</span><span class="s1">): [</span><span class="s5">'DimGray'</span><span class="s3">, </span><span class="s5">'DimGrey'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">106</span><span class="s3">, </span><span class="s4">90</span><span class="s3">, </span><span class="s4">205</span><span class="s1">): [</span><span class="s5">'SlateBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">107</span><span class="s3">, </span><span class="s4">142</span><span class="s3">, </span><span class="s4">35</span><span class="s1">): [</span><span class="s5">'OliveDrab'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">112</span><span class="s3">, </span><span class="s4">128</span><span class="s3">, </span><span class="s4">144</span><span class="s1">): [</span><span class="s5">'SlateGray'</span><span class="s3">, </span><span class="s5">'SlateGrey'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">119</span><span class="s3">, </span><span class="s4">136</span><span class="s3">, </span><span class="s4">153</span><span class="s1">): [</span><span class="s5">'LightSlateGray'</span><span class="s3">, </span><span class="s5">'LightSlateGrey'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">123</span><span class="s3">, </span><span class="s4">104</span><span class="s3">, </span><span class="s4">238</span><span class="s1">): [</span><span class="s5">'MediumSlateBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">124</span><span class="s3">, </span><span class="s4">252</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'LawnGreen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">127</span><span class="s3">, </span><span class="s4">255</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'Chartreuse'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">127</span><span class="s3">, </span><span class="s4">255</span><span class="s3">, </span><span class="s4">212</span><span class="s1">): [</span><span class="s5">'Aquamarine'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">128</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'Maroon'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">128</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">128</span><span class="s1">): [</span><span class="s5">'Purple'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">128</span><span class="s3">, </span><span class="s4">128</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'Olive'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">128</span><span class="s3">, </span><span class="s4">128</span><span class="s3">, </span><span class="s4">128</span><span class="s1">): [</span><span class="s5">'Gray'</span><span class="s3">, </span><span class="s5">'Grey'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">132</span><span class="s3">, </span><span class="s4">112</span><span class="s3">, </span><span class="s4">255</span><span class="s1">): [</span><span class="s5">'LightSlateBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">135</span><span class="s3">, </span><span class="s4">206</span><span class="s3">, </span><span class="s4">235</span><span class="s1">): [</span><span class="s5">'SkyBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">135</span><span class="s3">, </span><span class="s4">206</span><span class="s3">, </span><span class="s4">250</span><span class="s1">): [</span><span class="s5">'LightSkyBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">138</span><span class="s3">, </span><span class="s4">43</span><span class="s3">, </span><span class="s4">226</span><span class="s1">): [</span><span class="s5">'BlueViolet'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">139</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'DarkRed'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">139</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">139</span><span class="s1">): [</span><span class="s5">'DarkMagenta'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">139</span><span class="s3">, </span><span class="s4">69</span><span class="s3">, </span><span class="s4">19</span><span class="s1">): [</span><span class="s5">'SaddleBrown'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">143</span><span class="s3">, </span><span class="s4">188</span><span class="s3">, </span><span class="s4">143</span><span class="s1">): [</span><span class="s5">'DarkSeaGreen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">144</span><span class="s3">, </span><span class="s4">238</span><span class="s3">, </span><span class="s4">144</span><span class="s1">): [</span><span class="s5">'LightGreen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">147</span><span class="s3">, </span><span class="s4">112</span><span class="s3">, </span><span class="s4">219</span><span class="s1">): [</span><span class="s5">'MediumPurple'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">148</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">211</span><span class="s1">): [</span><span class="s5">'DarkViolet'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">152</span><span class="s3">, </span><span class="s4">251</span><span class="s3">, </span><span class="s4">152</span><span class="s1">): [</span><span class="s5">'PaleGreen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">153</span><span class="s3">, </span><span class="s4">50</span><span class="s3">, </span><span class="s4">204</span><span class="s1">): [</span><span class="s5">'DarkOrchid'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">154</span><span class="s3">, </span><span class="s4">205</span><span class="s3">, </span><span class="s4">50</span><span class="s1">): [</span><span class="s5">'YellowGreen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">160</span><span class="s3">, </span><span class="s4">82</span><span class="s3">, </span><span class="s4">45</span><span class="s1">): [</span><span class="s5">'Sienna'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">165</span><span class="s3">, </span><span class="s4">42</span><span class="s3">, </span><span class="s4">42</span><span class="s1">): [</span><span class="s5">'Brown'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">169</span><span class="s3">, </span><span class="s4">169</span><span class="s3">, </span><span class="s4">169</span><span class="s1">): [</span><span class="s5">'DarkGray'</span><span class="s3">, </span><span class="s5">'DarkGrey'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">173</span><span class="s3">, </span><span class="s4">216</span><span class="s3">, </span><span class="s4">230</span><span class="s1">): [</span><span class="s5">'LightBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">173</span><span class="s3">, </span><span class="s4">255</span><span class="s3">, </span><span class="s4">47</span><span class="s1">): [</span><span class="s5">'GreenYellow'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">175</span><span class="s3">, </span><span class="s4">238</span><span class="s3">, </span><span class="s4">238</span><span class="s1">): [</span><span class="s5">'PaleTurquoise'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">176</span><span class="s3">, </span><span class="s4">196</span><span class="s3">, </span><span class="s4">222</span><span class="s1">): [</span><span class="s5">'LightSteelBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">176</span><span class="s3">, </span><span class="s4">224</span><span class="s3">, </span><span class="s4">230</span><span class="s1">): [</span><span class="s5">'PowderBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">178</span><span class="s3">, </span><span class="s4">34</span><span class="s3">, </span><span class="s4">34</span><span class="s1">): [</span><span class="s5">'Firebrick'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">184</span><span class="s3">, </span><span class="s4">134</span><span class="s3">, </span><span class="s4">11</span><span class="s1">): [</span><span class="s5">'DarkGoldenrod'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">186</span><span class="s3">, </span><span class="s4">85</span><span class="s3">, </span><span class="s4">211</span><span class="s1">): [</span><span class="s5">'MediumOrchid'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">188</span><span class="s3">, </span><span class="s4">143</span><span class="s3">, </span><span class="s4">143</span><span class="s1">): [</span><span class="s5">'RosyBrown'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">189</span><span class="s3">, </span><span class="s4">183</span><span class="s3">, </span><span class="s4">107</span><span class="s1">): [</span><span class="s5">'DarkKhaki'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">192</span><span class="s3">, </span><span class="s4">192</span><span class="s3">, </span><span class="s4">192</span><span class="s1">): [</span><span class="s5">'Silver'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">199</span><span class="s3">, </span><span class="s4">21</span><span class="s3">, </span><span class="s4">133</span><span class="s1">): [</span><span class="s5">'MediumVioletRed'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">205</span><span class="s3">, </span><span class="s4">92</span><span class="s3">, </span><span class="s4">92</span><span class="s1">): [</span><span class="s5">'IndianRed'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">205</span><span class="s3">, </span><span class="s4">133</span><span class="s3">, </span><span class="s4">63</span><span class="s1">): [</span><span class="s5">'Peru'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">208</span><span class="s3">, </span><span class="s4">32</span><span class="s3">, </span><span class="s4">144</span><span class="s1">): [</span><span class="s5">'VioletRed'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">210</span><span class="s3">, </span><span class="s4">105</span><span class="s3">, </span><span class="s4">30</span><span class="s1">): [</span><span class="s5">'Chocolate'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">210</span><span class="s3">, </span><span class="s4">180</span><span class="s3">, </span><span class="s4">140</span><span class="s1">): [</span><span class="s5">'Tan'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">211</span><span class="s3">, </span><span class="s4">211</span><span class="s3">, </span><span class="s4">211</span><span class="s1">): [</span><span class="s5">'LightGray'</span><span class="s3">, </span><span class="s5">'LightGrey'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">216</span><span class="s3">, </span><span class="s4">191</span><span class="s3">, </span><span class="s4">216</span><span class="s1">): [</span><span class="s5">'Thistle'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">218</span><span class="s3">, </span><span class="s4">112</span><span class="s3">, </span><span class="s4">214</span><span class="s1">): [</span><span class="s5">'Orchid'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">218</span><span class="s3">, </span><span class="s4">165</span><span class="s3">, </span><span class="s4">32</span><span class="s1">): [</span><span class="s5">'Goldenrod'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">219</span><span class="s3">, </span><span class="s4">112</span><span class="s3">, </span><span class="s4">147</span><span class="s1">): [</span><span class="s5">'PaleVioletRed'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">220</span><span class="s3">, </span><span class="s4">20</span><span class="s3">, </span><span class="s4">60</span><span class="s1">): [</span><span class="s5">'Crimson'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">220</span><span class="s3">, </span><span class="s4">220</span><span class="s3">, </span><span class="s4">220</span><span class="s1">): [</span><span class="s5">'Gainsboro'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">221</span><span class="s3">, </span><span class="s4">160</span><span class="s3">, </span><span class="s4">221</span><span class="s1">): [</span><span class="s5">'Plum'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">222</span><span class="s3">, </span><span class="s4">184</span><span class="s3">, </span><span class="s4">135</span><span class="s1">): [</span><span class="s5">'Burlywood'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">224</span><span class="s3">, </span><span class="s4">255</span><span class="s3">, </span><span class="s4">255</span><span class="s1">): [</span><span class="s5">'LightCyan'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">230</span><span class="s3">, </span><span class="s4">230</span><span class="s3">, </span><span class="s4">250</span><span class="s1">): [</span><span class="s5">'Lavender'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">233</span><span class="s3">, </span><span class="s4">150</span><span class="s3">, </span><span class="s4">122</span><span class="s1">): [</span><span class="s5">'DarkSalmon'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">238</span><span class="s3">, </span><span class="s4">130</span><span class="s3">, </span><span class="s4">238</span><span class="s1">): [</span><span class="s5">'Violet'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">238</span><span class="s3">, </span><span class="s4">221</span><span class="s3">, </span><span class="s4">130</span><span class="s1">): [</span><span class="s5">'LightGoldenrod'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">238</span><span class="s3">, </span><span class="s4">232</span><span class="s3">, </span><span class="s4">170</span><span class="s1">): [</span><span class="s5">'PaleGoldenrod'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">240</span><span class="s3">, </span><span class="s4">128</span><span class="s3">, </span><span class="s4">128</span><span class="s1">): [</span><span class="s5">'LightCoral'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">240</span><span class="s3">, </span><span class="s4">230</span><span class="s3">, </span><span class="s4">140</span><span class="s1">): [</span><span class="s5">'Khaki'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">240</span><span class="s3">, </span><span class="s4">248</span><span class="s3">, </span><span class="s4">255</span><span class="s1">): [</span><span class="s5">'AliceBlue'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">240</span><span class="s3">, </span><span class="s4">255</span><span class="s3">, </span><span class="s4">240</span><span class="s1">): [</span><span class="s5">'Honeydew'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">240</span><span class="s3">, </span><span class="s4">255</span><span class="s3">, </span><span class="s4">255</span><span class="s1">): [</span><span class="s5">'Azure'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">244</span><span class="s3">, </span><span class="s4">164</span><span class="s3">, </span><span class="s4">96</span><span class="s1">): [</span><span class="s5">'SandyBrown'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">245</span><span class="s3">, </span><span class="s4">222</span><span class="s3">, </span><span class="s4">179</span><span class="s1">): [</span><span class="s5">'Wheat'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">245</span><span class="s3">, </span><span class="s4">245</span><span class="s3">, </span><span class="s4">220</span><span class="s1">): [</span><span class="s5">'Beige'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">245</span><span class="s3">, </span><span class="s4">245</span><span class="s3">, </span><span class="s4">245</span><span class="s1">): [</span><span class="s5">'WhiteSmoke'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">245</span><span class="s3">, </span><span class="s4">255</span><span class="s3">, </span><span class="s4">250</span><span class="s1">): [</span><span class="s5">'MintCream'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">248</span><span class="s3">, </span><span class="s4">248</span><span class="s3">, </span><span class="s4">255</span><span class="s1">): [</span><span class="s5">'GhostWhite'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">250</span><span class="s3">, </span><span class="s4">128</span><span class="s3">, </span><span class="s4">114</span><span class="s1">): [</span><span class="s5">'Salmon'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">250</span><span class="s3">, </span><span class="s4">235</span><span class="s3">, </span><span class="s4">215</span><span class="s1">): [</span><span class="s5">'AntiqueWhite'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">250</span><span class="s3">, </span><span class="s4">240</span><span class="s3">, </span><span class="s4">230</span><span class="s1">): [</span><span class="s5">'Linen'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">250</span><span class="s3">, </span><span class="s4">250</span><span class="s3">, </span><span class="s4">210</span><span class="s1">): [</span><span class="s5">'LightGoldenrodYellow'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">253</span><span class="s3">, </span><span class="s4">245</span><span class="s3">, </span><span class="s4">230</span><span class="s1">): [</span><span class="s5">'OldLace'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'Red'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">255</span><span class="s1">): [</span><span class="s5">'Magenta'</span><span class="s3">, </span><span class="s5">'Fuchsia'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">20</span><span class="s3">, </span><span class="s4">147</span><span class="s1">): [</span><span class="s5">'DeepPink'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">69</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'OrangeRed'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">99</span><span class="s3">, </span><span class="s4">71</span><span class="s1">): [</span><span class="s5">'Tomato'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">105</span><span class="s3">, </span><span class="s4">180</span><span class="s1">): [</span><span class="s5">'HotPink'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">127</span><span class="s3">, </span><span class="s4">80</span><span class="s1">): [</span><span class="s5">'Coral'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">140</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'DarkOrange'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">160</span><span class="s3">, </span><span class="s4">122</span><span class="s1">): [</span><span class="s5">'LightSalmon'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">165</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'Orange'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">182</span><span class="s3">, </span><span class="s4">193</span><span class="s1">): [</span><span class="s5">'LightPink'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">192</span><span class="s3">, </span><span class="s4">203</span><span class="s1">): [</span><span class="s5">'Pink'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">215</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'Gold'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">218</span><span class="s3">, </span><span class="s4">185</span><span class="s1">): [</span><span class="s5">'PeachPuff'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">222</span><span class="s3">, </span><span class="s4">173</span><span class="s1">): [</span><span class="s5">'NavajoWhite'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">228</span><span class="s3">, </span><span class="s4">181</span><span class="s1">): [</span><span class="s5">'Moccasin'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">228</span><span class="s3">, </span><span class="s4">196</span><span class="s1">): [</span><span class="s5">'Bisque'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">228</span><span class="s3">, </span><span class="s4">225</span><span class="s1">): [</span><span class="s5">'MistyRose'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">235</span><span class="s3">, </span><span class="s4">205</span><span class="s1">): [</span><span class="s5">'BlanchedAlmond'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">239</span><span class="s3">, </span><span class="s4">213</span><span class="s1">): [</span><span class="s5">'PapayaWhip'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">240</span><span class="s3">, </span><span class="s4">245</span><span class="s1">): [</span><span class="s5">'LavenderBlush'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">245</span><span class="s3">, </span><span class="s4">238</span><span class="s1">): [</span><span class="s5">'Seashell'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">248</span><span class="s3">, </span><span class="s4">220</span><span class="s1">): [</span><span class="s5">'Cornsilk'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">250</span><span class="s3">, </span><span class="s4">205</span><span class="s1">): [</span><span class="s5">'LemonChiffon'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">250</span><span class="s3">, </span><span class="s4">240</span><span class="s1">): [</span><span class="s5">'FloralWhite'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">250</span><span class="s3">, </span><span class="s4">250</span><span class="s1">): [</span><span class="s5">'Snow'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">255</span><span class="s3">, </span><span class="s4">0</span><span class="s1">): [</span><span class="s5">'Yellow'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">255</span><span class="s3">, </span><span class="s4">224</span><span class="s1">): [</span><span class="s5">'LightYellow'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">255</span><span class="s3">, </span><span class="s4">240</span><span class="s1">): [</span><span class="s5">'Ivory'</span><span class="s1">]</span><span class="s3">,</span>
+    <span class="s1">(</span><span class="s4">255</span><span class="s3">, </span><span class="s4">255</span><span class="s3">, </span><span class="s4">255</span><span class="s1">): [</span><span class="s5">'White'</span><span class="s1">]</span>
+<span class="s1">}</span>
+
+<span class="s0">## Building inverse relation</span>
+<span class="s1">COLOR_NAME_TO_RGB = dict(</span>
+    <span class="s1">(name.lower()</span><span class="s3">, </span><span class="s1">rgb)</span>
+    <span class="s3">for </span><span class="s1">rgb</span><span class="s3">, </span><span class="s1">names </span><span class="s3">in </span><span class="s1">RGB_TO_COLOR_NAMES.items()</span>
+    <span class="s3">for </span><span class="s1">name </span><span class="s3">in </span><span class="s1">names)</span>
+
+
+<span class="s1">LONG_HEX_COLOR = re.compile(</span><span class="s5">r'^#[0-9a-fA-F]{6}$'</span><span class="s1">)</span>
+<span class="s1">SHORT_HEX_COLOR = re.compile(</span><span class="s5">r'^#[0-9a-fA-F]{3}$'</span><span class="s1">)</span>
+
+
+<span class="s3">class </span><span class="s1">C_HSL:</span>
+
+    <span class="s3">def </span><span class="s1">__getattr__(self</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s1">label = value.lower()</span>
+        <span class="s3">if </span><span class="s1">label </span><span class="s3">in </span><span class="s1">COLOR_NAME_TO_RGB:</span>
+            <span class="s3">return </span><span class="s1">rgb2hsl(tuple(v / </span><span class="s4">255. </span><span class="s3">for </span><span class="s1">v </span><span class="s3">in </span><span class="s1">COLOR_NAME_TO_RGB[label]))</span>
+        <span class="s3">raise </span><span class="s1">AttributeError(</span><span class="s5">&quot;%s instance has no attribute %r&quot;</span>
+                             <span class="s1">% (self.__class__</span><span class="s3">, </span><span class="s1">value))</span>
+
+
+<span class="s1">HSL = C_HSL()</span>
+
+
+<span class="s3">class </span><span class="s1">C_RGB:</span>
+    <span class="s2">&quot;&quot;&quot;RGB colors container 
+ 
+    Provides a quick color access. 
+ 
+    &gt;&gt;&gt; from colour import RGB 
+ 
+    &gt;&gt;&gt; RGB.WHITE 
+    (1.0, 1.0, 1.0) 
+    &gt;&gt;&gt; RGB.BLUE 
+    (0.0, 0.0, 1.0) 
+ 
+    &gt;&gt;&gt; RGB.DONOTEXISTS  # doctest: +ELLIPSIS 
+    Traceback (most recent call last): 
+    ... 
+    AttributeError: ... has no attribute 'DONOTEXISTS' 
+ 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">def </span><span class="s1">__getattr__(self</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s3">return </span><span class="s1">hsl2rgb(getattr(HSL</span><span class="s3">, </span><span class="s1">value))</span>
+
+
+<span class="s3">class </span><span class="s1">C_HEX:</span>
+    <span class="s2">&quot;&quot;&quot;RGB colors container 
+ 
+    Provides a quick color access. 
+ 
+    &gt;&gt;&gt; from colour import HEX 
+ 
+    &gt;&gt;&gt; HEX.WHITE 
+    '#fff' 
+    &gt;&gt;&gt; HEX.BLUE 
+    '#00f' 
+ 
+    &gt;&gt;&gt; HEX.DONOTEXISTS  # doctest: +ELLIPSIS 
+    Traceback (most recent call last): 
+    ... 
+    AttributeError: ... has no attribute 'DONOTEXISTS' 
+ 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">def </span><span class="s1">__getattr__(self</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s3">return </span><span class="s1">rgb2hex(getattr(RGB</span><span class="s3">, </span><span class="s1">value))</span>
+
+<span class="s1">RGB = C_RGB()</span>
+<span class="s1">HEX = C_HEX()</span>
+
+
+<span class="s0">##</span>
+<span class="s0">## Conversion function</span>
+<span class="s0">##</span>
+
+<span class="s3">def </span><span class="s1">hsl2rgb(hsl):</span>
+    <span class="s2">&quot;&quot;&quot;Convert HSL representation towards RGB 
+ 
+    :param h: Hue, position around the chromatic circle (h=1 equiv h=0) 
+    :param s: Saturation, color saturation (0=full gray, 1=full color) 
+    :param l: Ligthness, Overhaul lightness (0=full black, 1=full white) 
+    :rtype: 3-uple for RGB values in float between 0 and 1 
+ 
+    Hue, Saturation, Range from Lightness is a float between 0 and 1 
+ 
+    Note that Hue can be set to any value but as it is a rotation 
+    around the chromatic circle, any value above 1 or below 0 can 
+    be expressed by a value between 0 and 1 (Note that h=0 is equiv 
+    to h=1). 
+ 
+    This algorithm came from: 
+    http://www.easyrgb.com/index.php?X=MATH&amp;H=19#text19 
+ 
+    Here are some quick notion of HSL to RGB conversion: 
+ 
+    &gt;&gt;&gt; from colour import hsl2rgb 
+ 
+    With a lightness put at 0, RGB is always rgbblack 
+ 
+    &gt;&gt;&gt; hsl2rgb((0.0, 0.0, 0.0)) 
+    (0.0, 0.0, 0.0) 
+    &gt;&gt;&gt; hsl2rgb((0.5, 0.0, 0.0)) 
+    (0.0, 0.0, 0.0) 
+    &gt;&gt;&gt; hsl2rgb((0.5, 0.5, 0.0)) 
+    (0.0, 0.0, 0.0) 
+ 
+    Same for lightness put at 1, RGB is always rgbwhite 
+ 
+    &gt;&gt;&gt; hsl2rgb((0.0, 0.0, 1.0)) 
+    (1.0, 1.0, 1.0) 
+    &gt;&gt;&gt; hsl2rgb((0.5, 0.0, 1.0)) 
+    (1.0, 1.0, 1.0) 
+    &gt;&gt;&gt; hsl2rgb((0.5, 0.5, 1.0)) 
+    (1.0, 1.0, 1.0) 
+ 
+    With saturation put at 0, the RGB should be equal to Lightness: 
+ 
+    &gt;&gt;&gt; hsl2rgb((0.0, 0.0, 0.25)) 
+    (0.25, 0.25, 0.25) 
+    &gt;&gt;&gt; hsl2rgb((0.5, 0.0, 0.5)) 
+    (0.5, 0.5, 0.5) 
+    &gt;&gt;&gt; hsl2rgb((0.5, 0.0, 0.75)) 
+    (0.75, 0.75, 0.75) 
+ 
+    With saturation put at 1, and lightness put to 0.5, we can find 
+    normal full red, green, blue colors: 
+ 
+    &gt;&gt;&gt; hsl2rgb((0 , 1.0, 0.5)) 
+    (1.0, 0.0, 0.0) 
+    &gt;&gt;&gt; hsl2rgb((1 , 1.0, 0.5)) 
+    (1.0, 0.0, 0.0) 
+    &gt;&gt;&gt; hsl2rgb((1.0/3 , 1.0, 0.5)) 
+    (0.0, 1.0, 0.0) 
+    &gt;&gt;&gt; hsl2rgb((2.0/3 , 1.0, 0.5)) 
+    (0.0, 0.0, 1.0) 
+ 
+    Of course: 
+    &gt;&gt;&gt; hsl2rgb((0.0, 2.0, 0.5))  # doctest: +ELLIPSIS 
+    Traceback (most recent call last): 
+    ... 
+    ValueError: Saturation must be between 0 and 1. 
+ 
+    And: 
+    &gt;&gt;&gt; hsl2rgb((0.0, 0.0, 1.5))  # doctest: +ELLIPSIS 
+    Traceback (most recent call last): 
+    ... 
+    ValueError: Lightness must be between 0 and 1. 
+ 
+    &quot;&quot;&quot;</span>
+    <span class="s1">h</span><span class="s3">, </span><span class="s1">s</span><span class="s3">, </span><span class="s1">l = [float(v) </span><span class="s3">for </span><span class="s1">v </span><span class="s3">in </span><span class="s1">hsl]</span>
+
+    <span class="s3">if not </span><span class="s1">(</span><span class="s4">0.0 </span><span class="s1">- FLOAT_ERROR &lt;= s &lt;= </span><span class="s4">1.0 </span><span class="s1">+ FLOAT_ERROR):</span>
+        <span class="s3">raise </span><span class="s1">ValueError(</span><span class="s5">&quot;Saturation must be between 0 and 1.&quot;</span><span class="s1">)</span>
+    <span class="s3">if not </span><span class="s1">(</span><span class="s4">0.0 </span><span class="s1">- FLOAT_ERROR &lt;= l &lt;= </span><span class="s4">1.0 </span><span class="s1">+ FLOAT_ERROR):</span>
+        <span class="s3">raise </span><span class="s1">ValueError(</span><span class="s5">&quot;Lightness must be between 0 and 1.&quot;</span><span class="s1">)</span>
+
+    <span class="s3">if </span><span class="s1">s == </span><span class="s4">0</span><span class="s1">:</span>
+        <span class="s3">return </span><span class="s1">l</span><span class="s3">, </span><span class="s1">l</span><span class="s3">, </span><span class="s1">l</span>
+
+    <span class="s3">if </span><span class="s1">l &lt; </span><span class="s4">0.5</span><span class="s1">:</span>
+        <span class="s1">v2 = l * (</span><span class="s4">1.0 </span><span class="s1">+ s)</span>
+    <span class="s3">else</span><span class="s1">:</span>
+        <span class="s1">v2 = (l + s) - (s * l)</span>
+
+    <span class="s1">v1 = </span><span class="s4">2.0 </span><span class="s1">* l - v2</span>
+
+    <span class="s1">r = _hue2rgb(v1</span><span class="s3">, </span><span class="s1">v2</span><span class="s3">, </span><span class="s1">h + (</span><span class="s4">1.0 </span><span class="s1">/ </span><span class="s4">3</span><span class="s1">))</span>
+    <span class="s1">g = _hue2rgb(v1</span><span class="s3">, </span><span class="s1">v2</span><span class="s3">, </span><span class="s1">h)</span>
+    <span class="s1">b = _hue2rgb(v1</span><span class="s3">, </span><span class="s1">v2</span><span class="s3">, </span><span class="s1">h - (</span><span class="s4">1.0 </span><span class="s1">/ </span><span class="s4">3</span><span class="s1">))</span>
+
+    <span class="s3">return </span><span class="s1">r</span><span class="s3">, </span><span class="s1">g</span><span class="s3">, </span><span class="s1">b</span>
+
+
+<span class="s3">def </span><span class="s1">rgb2hsl(rgb):</span>
+    <span class="s2">&quot;&quot;&quot;Convert RGB representation towards HSL 
+ 
+    :param r: Red amount (float between 0 and 1) 
+    :param g: Green amount (float between 0 and 1) 
+    :param b: Blue amount (float between 0 and 1) 
+    :rtype: 3-uple for HSL values in float between 0 and 1 
+ 
+    This algorithm came from: 
+    http://www.easyrgb.com/index.php?X=MATH&amp;H=19#text19 
+ 
+    Here are some quick notion of RGB to HSL conversion: 
+ 
+    &gt;&gt;&gt; from colour import rgb2hsl 
+ 
+    Note that if red amount is equal to green and blue, then you 
+    should have a gray value (from black to white). 
+ 
+ 
+    &gt;&gt;&gt; rgb2hsl((1.0, 1.0, 1.0))  # doctest: +ELLIPSIS 
+    (..., 0.0, 1.0) 
+    &gt;&gt;&gt; rgb2hsl((0.5, 0.5, 0.5))  # doctest: +ELLIPSIS 
+    (..., 0.0, 0.5) 
+    &gt;&gt;&gt; rgb2hsl((0.0, 0.0, 0.0))  # doctest: +ELLIPSIS 
+    (..., 0.0, 0.0) 
+ 
+    If only one color is different from the others, it defines the 
+    direct Hue: 
+ 
+    &gt;&gt;&gt; rgb2hsl((0.5, 0.5, 1.0))  # doctest: +ELLIPSIS 
+    (0.66..., 1.0, 0.75) 
+    &gt;&gt;&gt; rgb2hsl((0.2, 0.1, 0.1))  # doctest: +ELLIPSIS 
+    (0.0, 0.33..., 0.15...) 
+ 
+    Having only one value set, you can check that: 
+ 
+    &gt;&gt;&gt; rgb2hsl((1.0, 0.0, 0.0)) 
+    (0.0, 1.0, 0.5) 
+    &gt;&gt;&gt; rgb2hsl((0.0, 1.0, 0.0))  # doctest: +ELLIPSIS 
+    (0.33..., 1.0, 0.5) 
+    &gt;&gt;&gt; rgb2hsl((0.0, 0.0, 1.0))  # doctest: +ELLIPSIS 
+    (0.66..., 1.0, 0.5) 
+ 
+    Regression check upon very close values in every component of 
+    red, green and blue: 
+ 
+    &gt;&gt;&gt; rgb2hsl((0.9999999999999999, 1.0, 0.9999999999999994)) 
+    (0.0, 0.0, 0.999...) 
+ 
+    Of course: 
+ 
+    &gt;&gt;&gt; rgb2hsl((0.0, 2.0, 0.5))  # doctest: +ELLIPSIS 
+    Traceback (most recent call last): 
+    ... 
+    ValueError: Green must be between 0 and 1. You provided 2.0. 
+ 
+    And: 
+    &gt;&gt;&gt; rgb2hsl((0.0, 0.0, 1.5))  # doctest: +ELLIPSIS 
+    Traceback (most recent call last): 
+    ... 
+    ValueError: Blue must be between 0 and 1. You provided 1.5. 
+ 
+    &quot;&quot;&quot;</span>
+    <span class="s1">r</span><span class="s3">, </span><span class="s1">g</span><span class="s3">, </span><span class="s1">b = [float(v) </span><span class="s3">for </span><span class="s1">v </span><span class="s3">in </span><span class="s1">rgb]</span>
+
+    <span class="s3">for </span><span class="s1">name</span><span class="s3">, </span><span class="s1">v </span><span class="s3">in </span><span class="s1">{</span><span class="s5">'Red'</span><span class="s1">: r</span><span class="s3">, </span><span class="s5">'Green'</span><span class="s1">: g</span><span class="s3">, </span><span class="s5">'Blue'</span><span class="s1">: b}.items():</span>
+        <span class="s3">if not </span><span class="s1">(</span><span class="s4">0 </span><span class="s1">- FLOAT_ERROR &lt;= v &lt;= </span><span class="s4">1 </span><span class="s1">+ FLOAT_ERROR):</span>
+            <span class="s3">raise </span><span class="s1">ValueError(</span><span class="s5">&quot;%s must be between 0 and 1. You provided %r.&quot;</span>
+                             <span class="s1">% (name</span><span class="s3">, </span><span class="s1">v))</span>
+
+    <span class="s1">vmin = min(r</span><span class="s3">, </span><span class="s1">g</span><span class="s3">, </span><span class="s1">b)  </span><span class="s0">## Min. value of RGB</span>
+    <span class="s1">vmax = max(r</span><span class="s3">, </span><span class="s1">g</span><span class="s3">, </span><span class="s1">b)  </span><span class="s0">## Max. value of RGB</span>
+    <span class="s1">diff = vmax - vmin   </span><span class="s0">## Delta RGB value</span>
+
+    <span class="s1">vsum = vmin + vmax</span>
+
+    <span class="s1">l = vsum / </span><span class="s4">2</span>
+
+    <span class="s3">if </span><span class="s1">diff &lt; FLOAT_ERROR:  </span><span class="s0">## This is a gray, no chroma...</span>
+        <span class="s3">return </span><span class="s1">(</span><span class="s4">0.0</span><span class="s3">, </span><span class="s4">0.0</span><span class="s3">, </span><span class="s1">l)</span>
+
+    <span class="s0">##</span>
+    <span class="s0">## Chromatic data...</span>
+    <span class="s0">##</span>
+
+    <span class="s0">## Saturation</span>
+    <span class="s3">if </span><span class="s1">l &lt; </span><span class="s4">0.5</span><span class="s1">:</span>
+        <span class="s1">s = diff / vsum</span>
+    <span class="s3">else</span><span class="s1">:</span>
+        <span class="s1">s = diff / (</span><span class="s4">2.0 </span><span class="s1">- vsum)</span>
+
+    <span class="s1">dr = (((vmax - r) / </span><span class="s4">6</span><span class="s1">) + (diff / </span><span class="s4">2</span><span class="s1">)) / diff</span>
+    <span class="s1">dg = (((vmax - g) / </span><span class="s4">6</span><span class="s1">) + (diff / </span><span class="s4">2</span><span class="s1">)) / diff</span>
+    <span class="s1">db = (((vmax - b) / </span><span class="s4">6</span><span class="s1">) + (diff / </span><span class="s4">2</span><span class="s1">)) / diff</span>
+
+    <span class="s3">if </span><span class="s1">r == vmax:</span>
+        <span class="s1">h = db - dg</span>
+    <span class="s3">elif </span><span class="s1">g == vmax:</span>
+        <span class="s1">h = (</span><span class="s4">1.0 </span><span class="s1">/ </span><span class="s4">3</span><span class="s1">) + dr - db</span>
+    <span class="s3">elif </span><span class="s1">b == vmax:</span>
+        <span class="s1">h = (</span><span class="s4">2.0 </span><span class="s1">/ </span><span class="s4">3</span><span class="s1">) + dg - dr</span>
+
+    <span class="s3">if </span><span class="s1">h &lt; </span><span class="s4">0</span><span class="s1">: h += </span><span class="s4">1</span>
+    <span class="s3">if </span><span class="s1">h &gt; </span><span class="s4">1</span><span class="s1">: h -= </span><span class="s4">1</span>
+
+    <span class="s3">return </span><span class="s1">(h</span><span class="s3">, </span><span class="s1">s</span><span class="s3">, </span><span class="s1">l)</span>
+
+
+<span class="s3">def </span><span class="s1">_hue2rgb(v1</span><span class="s3">, </span><span class="s1">v2</span><span class="s3">, </span><span class="s1">vH):</span>
+    <span class="s2">&quot;&quot;&quot;Private helper function (Do not call directly) 
+ 
+    :param vH: rotation around the chromatic circle (between 0..1) 
+ 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">while </span><span class="s1">vH &lt; </span><span class="s4">0</span><span class="s1">: vH += </span><span class="s4">1</span>
+    <span class="s3">while </span><span class="s1">vH &gt; </span><span class="s4">1</span><span class="s1">: vH -= </span><span class="s4">1</span>
+
+    <span class="s3">if </span><span class="s4">6 </span><span class="s1">* vH &lt; </span><span class="s4">1</span><span class="s1">: </span><span class="s3">return </span><span class="s1">v1 + (v2 - v1) * </span><span class="s4">6 </span><span class="s1">* vH</span>
+    <span class="s3">if </span><span class="s4">2 </span><span class="s1">* vH &lt; </span><span class="s4">1</span><span class="s1">: </span><span class="s3">return </span><span class="s1">v2</span>
+    <span class="s3">if </span><span class="s4">3 </span><span class="s1">* vH &lt; </span><span class="s4">2</span><span class="s1">: </span><span class="s3">return </span><span class="s1">v1 + (v2 - v1) * ((</span><span class="s4">2.0 </span><span class="s1">/ </span><span class="s4">3</span><span class="s1">) - vH) * </span><span class="s4">6</span>
+
+    <span class="s3">return </span><span class="s1">v1</span>
+
+
+<span class="s3">def </span><span class="s1">rgb2hex(rgb</span><span class="s3">, </span><span class="s1">force_long=</span><span class="s3">False</span><span class="s1">):</span>
+    <span class="s2">&quot;&quot;&quot;Transform RGB tuple to hex RGB representation 
+ 
+    :param rgb: RGB 3-uple of float between 0 and 1 
+    :rtype: 3 hex char or 6 hex char string representation 
+ 
+    Usage 
+    ----- 
+ 
+    &gt;&gt;&gt; from colour import rgb2hex 
+ 
+    &gt;&gt;&gt; rgb2hex((0.0,1.0,0.0)) 
+    '#0f0' 
+ 
+    Rounding try to be as natural as possible: 
+ 
+    &gt;&gt;&gt; rgb2hex((0.0,0.999999,1.0)) 
+    '#0ff' 
+ 
+    And if not possible, the 6 hex char representation is used: 
+ 
+    &gt;&gt;&gt; rgb2hex((0.23,1.0,1.0)) 
+    '#3bffff' 
+ 
+    &gt;&gt;&gt; rgb2hex((0.0,0.999999,1.0), force_long=True) 
+    '#00ffff' 
+ 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">hx = </span><span class="s5">''</span><span class="s1">.join([</span><span class="s5">&quot;%02x&quot; </span><span class="s1">% int(c * </span><span class="s4">255 </span><span class="s1">+ </span><span class="s4">0.5 </span><span class="s1">- FLOAT_ERROR)</span>
+                  <span class="s3">for </span><span class="s1">c </span><span class="s3">in </span><span class="s1">rgb])</span>
+
+    <span class="s3">if not </span><span class="s1">force_long </span><span class="s3">and </span><span class="s1">hx[</span><span class="s4">0</span><span class="s1">::</span><span class="s4">2</span><span class="s1">] == hx[</span><span class="s4">1</span><span class="s1">::</span><span class="s4">2</span><span class="s1">]:</span>
+        <span class="s1">hx = </span><span class="s5">''</span><span class="s1">.join(hx[</span><span class="s4">0</span><span class="s1">::</span><span class="s4">2</span><span class="s1">])</span>
+
+    <span class="s3">return </span><span class="s5">&quot;#%s&quot; </span><span class="s1">% hx</span>
+
+
+<span class="s3">def </span><span class="s1">hex2rgb(str_rgb):</span>
+    <span class="s2">&quot;&quot;&quot;Transform hex RGB representation to RGB tuple 
+ 
+    :param str_rgb: 3 hex char or 6 hex char string representation 
+    :rtype: RGB 3-uple of float between 0 and 1 
+ 
+    &gt;&gt;&gt; from colour import hex2rgb 
+ 
+    &gt;&gt;&gt; hex2rgb('#00ff00') 
+    (0.0, 1.0, 0.0) 
+ 
+    &gt;&gt;&gt; hex2rgb('#0f0') 
+    (0.0, 1.0, 0.0) 
+ 
+    &gt;&gt;&gt; hex2rgb('#aaa')  # doctest: +ELLIPSIS 
+    (0.66..., 0.66..., 0.66...) 
+ 
+    &gt;&gt;&gt; hex2rgb('#aa')  # doctest: +ELLIPSIS 
+    Traceback (most recent call last): 
+    ... 
+    ValueError: Invalid value '#aa' provided for rgb color. 
+ 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">try</span><span class="s1">:</span>
+        <span class="s1">rgb = str_rgb[</span><span class="s4">1</span><span class="s1">:]</span>
+
+        <span class="s3">if </span><span class="s1">len(rgb) == </span><span class="s4">6</span><span class="s1">:</span>
+            <span class="s1">r</span><span class="s3">, </span><span class="s1">g</span><span class="s3">, </span><span class="s1">b = rgb[</span><span class="s4">0</span><span class="s1">:</span><span class="s4">2</span><span class="s1">]</span><span class="s3">, </span><span class="s1">rgb[</span><span class="s4">2</span><span class="s1">:</span><span class="s4">4</span><span class="s1">]</span><span class="s3">, </span><span class="s1">rgb[</span><span class="s4">4</span><span class="s1">:</span><span class="s4">6</span><span class="s1">]</span>
+        <span class="s3">elif </span><span class="s1">len(rgb) == </span><span class="s4">3</span><span class="s1">:</span>
+            <span class="s1">r</span><span class="s3">, </span><span class="s1">g</span><span class="s3">, </span><span class="s1">b = rgb[</span><span class="s4">0</span><span class="s1">] * </span><span class="s4">2</span><span class="s3">, </span><span class="s1">rgb[</span><span class="s4">1</span><span class="s1">] * </span><span class="s4">2</span><span class="s3">, </span><span class="s1">rgb[</span><span class="s4">2</span><span class="s1">] * </span><span class="s4">2</span>
+        <span class="s3">else</span><span class="s1">:</span>
+            <span class="s3">raise </span><span class="s1">ValueError()</span>
+    <span class="s3">except</span><span class="s1">:</span>
+        <span class="s3">raise </span><span class="s1">ValueError(</span><span class="s5">&quot;Invalid value %r provided for rgb color.&quot;</span>
+                         <span class="s1">% str_rgb)</span>
+
+    <span class="s3">return </span><span class="s1">tuple([float(int(v</span><span class="s3">, </span><span class="s4">16</span><span class="s1">)) / </span><span class="s4">255 </span><span class="s3">for </span><span class="s1">v </span><span class="s3">in </span><span class="s1">(r</span><span class="s3">, </span><span class="s1">g</span><span class="s3">, </span><span class="s1">b)])</span>
+
+
+<span class="s3">def </span><span class="s1">hex2web(hex):</span>
+    <span class="s2">&quot;&quot;&quot;Converts HEX representation to WEB 
+ 
+    :param rgb: 3 hex char or 6 hex char string representation 
+    :rtype: web string representation (human readable if possible) 
+ 
+    WEB representation uses X11 rgb.txt to define conversion 
+    between RGB and english color names. 
+ 
+    Usage 
+    ===== 
+ 
+    &gt;&gt;&gt; from colour import hex2web 
+ 
+    &gt;&gt;&gt; hex2web('#ff0000') 
+    'red' 
+ 
+    &gt;&gt;&gt; hex2web('#aaaaaa') 
+    '#aaa' 
+ 
+    &gt;&gt;&gt; hex2web('#abc') 
+    '#abc' 
+ 
+    &gt;&gt;&gt; hex2web('#acacac') 
+    '#acacac' 
+ 
+    &quot;&quot;&quot;</span>
+    <span class="s1">dec_rgb = tuple(int(v * </span><span class="s4">255</span><span class="s1">) </span><span class="s3">for </span><span class="s1">v </span><span class="s3">in </span><span class="s1">hex2rgb(hex))</span>
+    <span class="s3">if </span><span class="s1">dec_rgb </span><span class="s3">in </span><span class="s1">RGB_TO_COLOR_NAMES:</span>
+        <span class="s0">## take the first one</span>
+        <span class="s1">color_name = RGB_TO_COLOR_NAMES[dec_rgb][</span><span class="s4">0</span><span class="s1">]</span>
+        <span class="s0">## Enforce full lowercase for single worded color name.</span>
+        <span class="s3">return </span><span class="s1">color_name </span><span class="s3">if </span><span class="s1">len(re.sub(</span><span class="s5">r&quot;[^A-Z]&quot;</span><span class="s3">, </span><span class="s5">&quot;&quot;</span><span class="s3">, </span><span class="s1">color_name)) &gt; </span><span class="s4">1 </span><span class="s1">\</span>
+               <span class="s3">else </span><span class="s1">color_name.lower()</span>
+
+    <span class="s0"># Hex format is verified by hex2rgb function. And should be 3 or 6 digit</span>
+    <span class="s3">if </span><span class="s1">len(hex) == </span><span class="s4">7</span><span class="s1">:</span>
+        <span class="s3">if </span><span class="s1">hex[</span><span class="s4">1</span><span class="s1">] == hex[</span><span class="s4">2</span><span class="s1">] </span><span class="s3">and </span><span class="s1">\</span>
+           <span class="s1">hex[</span><span class="s4">3</span><span class="s1">] == hex[</span><span class="s4">4</span><span class="s1">] </span><span class="s3">and </span><span class="s1">\</span>
+           <span class="s1">hex[</span><span class="s4">5</span><span class="s1">] == hex[</span><span class="s4">6</span><span class="s1">]:</span>
+            <span class="s3">return </span><span class="s5">'#' </span><span class="s1">+ hex[</span><span class="s4">1</span><span class="s1">] + hex[</span><span class="s4">3</span><span class="s1">] + hex[</span><span class="s4">5</span><span class="s1">]</span>
+    <span class="s3">return </span><span class="s1">hex</span>
+
+
+<span class="s3">def </span><span class="s1">web2hex(web</span><span class="s3">, </span><span class="s1">force_long=</span><span class="s3">False</span><span class="s1">):</span>
+    <span class="s2">&quot;&quot;&quot;Converts WEB representation to HEX 
+ 
+    :param rgb: web string representation (human readable if possible) 
+    :rtype: 3 hex char or 6 hex char string representation 
+ 
+    WEB representation uses X11 rgb.txt to define conversion 
+    between RGB and english color names. 
+ 
+    Usage 
+    ===== 
+ 
+    &gt;&gt;&gt; from colour import web2hex 
+ 
+    &gt;&gt;&gt; web2hex('red') 
+    '#f00' 
+ 
+    &gt;&gt;&gt; web2hex('#aaa') 
+    '#aaa' 
+ 
+    &gt;&gt;&gt; web2hex('#foo')  # doctest: +ELLIPSIS 
+    Traceback (most recent call last): 
+    ... 
+    AttributeError: '#foo' is not in web format. Need 3 or 6 hex digit. 
+ 
+    &gt;&gt;&gt; web2hex('#aaa', force_long=True) 
+    '#aaaaaa' 
+ 
+    &gt;&gt;&gt; web2hex('#aaaaaa') 
+    '#aaaaaa' 
+ 
+    &gt;&gt;&gt; web2hex('#aaaa')  # doctest: +ELLIPSIS 
+    Traceback (most recent call last): 
+    ... 
+    AttributeError: '#aaaa' is not in web format. Need 3 or 6 hex digit. 
+ 
+    &gt;&gt;&gt; web2hex('pinky')  # doctest: +ELLIPSIS 
+    Traceback (most recent call last): 
+    ... 
+    ValueError: 'pinky' is not a recognized color. 
+ 
+    And color names are case insensitive: 
+ 
+    &gt;&gt;&gt; Color('RED') 
+    &lt;Color red&gt; 
+ 
+    &quot;&quot;&quot;</span>
+    <span class="s3">if </span><span class="s1">web.startswith(</span><span class="s5">'#'</span><span class="s1">):</span>
+        <span class="s3">if </span><span class="s1">(LONG_HEX_COLOR.match(web) </span><span class="s3">or</span>
+            <span class="s1">(</span><span class="s3">not </span><span class="s1">force_long </span><span class="s3">and </span><span class="s1">SHORT_HEX_COLOR.match(web))):</span>
+            <span class="s3">return </span><span class="s1">web.lower()</span>
+        <span class="s3">elif </span><span class="s1">SHORT_HEX_COLOR.match(web) </span><span class="s3">and </span><span class="s1">force_long:</span>
+            <span class="s3">return </span><span class="s5">'#' </span><span class="s1">+ </span><span class="s5">''</span><span class="s1">.join([(</span><span class="s5">&quot;%s&quot; </span><span class="s1">% (t</span><span class="s3">, </span><span class="s1">)) * </span><span class="s4">2 </span><span class="s3">for </span><span class="s1">t </span><span class="s3">in </span><span class="s1">web[</span><span class="s4">1</span><span class="s1">:]])</span>
+        <span class="s3">raise </span><span class="s1">AttributeError(</span>
+            <span class="s5">&quot;%r is not in web format. Need 3 or 6 hex digit.&quot; </span><span class="s1">% web)</span>
+
+    <span class="s1">web = web.lower()</span>
+    <span class="s3">if </span><span class="s1">web </span><span class="s3">not in </span><span class="s1">COLOR_NAME_TO_RGB:</span>
+        <span class="s3">raise </span><span class="s1">ValueError(</span><span class="s5">&quot;%r is not a recognized color.&quot; </span><span class="s1">% web)</span>
+
+    <span class="s0">## convert dec to hex:</span>
+
+    <span class="s3">return </span><span class="s1">rgb2hex([float(int(v)) / </span><span class="s4">255 </span><span class="s3">for </span><span class="s1">v </span><span class="s3">in </span><span class="s1">COLOR_NAME_TO_RGB[web]]</span><span class="s3">,</span>
+                   <span class="s1">force_long)</span>
+
+
+<span class="s0">## Missing functions conversion</span>
+
+<span class="s1">hsl2hex = </span><span class="s3">lambda </span><span class="s1">x: rgb2hex(hsl2rgb(x))</span>
+<span class="s1">hex2hsl = </span><span class="s3">lambda </span><span class="s1">x: rgb2hsl(hex2rgb(x))</span>
+<span class="s1">rgb2web = </span><span class="s3">lambda </span><span class="s1">x: hex2web(rgb2hex(x))</span>
+<span class="s1">web2rgb = </span><span class="s3">lambda </span><span class="s1">x: hex2rgb(web2hex(x))</span>
+<span class="s1">web2hsl = </span><span class="s3">lambda </span><span class="s1">x: rgb2hsl(web2rgb(x))</span>
+<span class="s1">hsl2web = </span><span class="s3">lambda </span><span class="s1">x: rgb2web(hsl2rgb(x))</span>
+
+
+<span class="s3">def </span><span class="s1">color_scale(begin_hsl</span><span class="s3">, </span><span class="s1">end_hsl</span><span class="s3">, </span><span class="s1">nb):</span>
+    <span class="s2">&quot;&quot;&quot;Returns a list of nb color HSL tuples between begin_hsl and end_hsl 
+ 
+    &gt;&gt;&gt; from colour import color_scale 
+ 
+    &gt;&gt;&gt; [rgb2hex(hsl2rgb(hsl)) for hsl in color_scale((0, 1, 0.5), 
+    ...                                               (1, 1, 0.5), 3)] 
+    ['#f00', '#0f0', '#00f', '#f00'] 
+ 
+    &gt;&gt;&gt; [rgb2hex(hsl2rgb(hsl)) 
+    ...  for hsl in color_scale((0, 0, 0), 
+    ...                         (0, 0, 1), 
+    ...                         15)]  # doctest: +ELLIPSIS 
+    ['#000', '#111', '#222', ..., '#ccc', '#ddd', '#eee', '#fff'] 
+ 
+    Of course, asking for negative values is not supported: 
+ 
+    &gt;&gt;&gt; color_scale((0, 1, 0.5), (1, 1, 0.5), -2) 
+    Traceback (most recent call last): 
+    ... 
+    ValueError: Unsupported negative number of colors (nb=-2). 
+ 
+    &quot;&quot;&quot;</span>
+
+    <span class="s3">if </span><span class="s1">nb &lt; </span><span class="s4">0</span><span class="s1">:</span>
+        <span class="s3">raise </span><span class="s1">ValueError(</span>
+            <span class="s5">&quot;Unsupported negative number of colors (nb=%r).&quot; </span><span class="s1">% nb)</span>
+
+    <span class="s1">step = tuple([float(end_hsl[i] - begin_hsl[i]) / nb </span><span class="s3">for </span><span class="s1">i </span><span class="s3">in </span><span class="s1">range(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">3</span><span class="s1">)]) \</span>
+           <span class="s3">if </span><span class="s1">nb &gt; </span><span class="s4">0 </span><span class="s3">else </span><span class="s1">(</span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s3">, </span><span class="s4">0</span><span class="s1">)</span>
+
+    <span class="s3">def </span><span class="s1">mul(step</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s3">return </span><span class="s1">tuple([v * value </span><span class="s3">for </span><span class="s1">v </span><span class="s3">in </span><span class="s1">step])</span>
+
+    <span class="s3">def </span><span class="s1">add_v(step</span><span class="s3">, </span><span class="s1">step2):</span>
+        <span class="s3">return </span><span class="s1">tuple([v + step2[i] </span><span class="s3">for </span><span class="s1">i</span><span class="s3">, </span><span class="s1">v </span><span class="s3">in </span><span class="s1">enumerate(step)])</span>
+
+    <span class="s3">return </span><span class="s1">[add_v(begin_hsl</span><span class="s3">, </span><span class="s1">mul(step</span><span class="s3">, </span><span class="s1">r)) </span><span class="s3">for </span><span class="s1">r </span><span class="s3">in </span><span class="s1">range(</span><span class="s4">0</span><span class="s3">, </span><span class="s1">nb + </span><span class="s4">1</span><span class="s1">)]</span>
+
+
+<span class="s0">##</span>
+<span class="s0">## Color Pickers</span>
+<span class="s0">##</span>
+
+<span class="s3">def </span><span class="s1">RGB_color_picker(obj):</span>
+    <span class="s2">&quot;&quot;&quot;Build a color representation from the string representation of an object 
+ 
+    This allows to quickly get a color from some data, with the 
+    additional benefit that the color will be the same as long as the 
+    (string representation of the) data is the same:: 
+ 
+        &gt;&gt;&gt; from colour import RGB_color_picker, Color 
+ 
+    Same inputs produce the same result:: 
+ 
+        &gt;&gt;&gt; RGB_color_picker(&quot;Something&quot;) == RGB_color_picker(&quot;Something&quot;) 
+        True 
+ 
+    ... but different inputs produce different colors:: 
+ 
+        &gt;&gt;&gt; RGB_color_picker(&quot;Something&quot;) != RGB_color_picker(&quot;Something else&quot;) 
+        True 
+ 
+    In any case, we still get a ``Color`` object:: 
+ 
+        &gt;&gt;&gt; isinstance(RGB_color_picker(&quot;Something&quot;), Color) 
+        True 
+ 
+    &quot;&quot;&quot;</span>
+
+    <span class="s0">## Turn the input into a by 3-dividable string. SHA-384 is good because it</span>
+    <span class="s0">## divides into 3 components of the same size, which will be used to</span>
+    <span class="s0">## represent the RGB values of the color.</span>
+    <span class="s1">digest = hashlib.sha384(str(obj).encode(</span><span class="s5">'utf-8'</span><span class="s1">)).hexdigest()</span>
+
+    <span class="s0">## Split the digest into 3 sub-strings of equivalent size.</span>
+    <span class="s1">subsize = int(len(digest) / </span><span class="s4">3</span><span class="s1">)</span>
+    <span class="s1">splitted_digest = [digest[i * subsize: (i + </span><span class="s4">1</span><span class="s1">) * subsize]</span>
+                       <span class="s3">for </span><span class="s1">i </span><span class="s3">in </span><span class="s1">range(</span><span class="s4">3</span><span class="s1">)]</span>
+
+    <span class="s0">## Convert those hexadecimal sub-strings into integer and scale them down</span>
+    <span class="s0">## to the 0..1 range.</span>
+    <span class="s1">max_value = float(int(</span><span class="s5">&quot;f&quot; </span><span class="s1">* subsize</span><span class="s3">, </span><span class="s4">16</span><span class="s1">))</span>
+    <span class="s1">components = (</span>
+        <span class="s1">int(d</span><span class="s3">, </span><span class="s4">16</span><span class="s1">)     </span><span class="s0">## Make a number from a list with hex digits</span>
+        <span class="s1">/ max_value    </span><span class="s0">## Scale it down to [0.0, 1.0]</span>
+        <span class="s3">for </span><span class="s1">d </span><span class="s3">in </span><span class="s1">splitted_digest)</span>
+
+    <span class="s3">return </span><span class="s1">Color(rgb2hex(components))  </span><span class="s0">## Profit!</span>
+
+
+<span class="s3">def </span><span class="s1">hash_or_str(obj):</span>
+    <span class="s3">try</span><span class="s1">:</span>
+        <span class="s3">return </span><span class="s1">hash((type(obj).__name__</span><span class="s3">, </span><span class="s1">obj))</span>
+    <span class="s3">except </span><span class="s1">TypeError:</span>
+        <span class="s0">## Adds the type name to make sure two object of different type but</span>
+        <span class="s0">## identical string representation get distinguished.</span>
+        <span class="s3">return </span><span class="s1">type(obj).__name__ + str(obj)</span>
+
+
+<span class="s0">##</span>
+<span class="s0">## All purpose object</span>
+<span class="s0">##</span>
+
+<span class="s3">class </span><span class="s1">Color(object):</span>
+    <span class="s2">&quot;&quot;&quot;Abstraction of a color object 
+ 
+    Color object keeps information of a color. It can input/output to different 
+    format (HSL, RGB, HEX, WEB) and their partial representation. 
+ 
+        &gt;&gt;&gt; from colour import Color, HSL 
+ 
+        &gt;&gt;&gt; b = Color() 
+        &gt;&gt;&gt; b.hsl = HSL.BLUE 
+ 
+    Access values 
+    ------------- 
+ 
+        &gt;&gt;&gt; b.hue  # doctest: +ELLIPSIS 
+        0.66... 
+        &gt;&gt;&gt; b.saturation 
+        1.0 
+        &gt;&gt;&gt; b.luminance 
+        0.5 
+ 
+        &gt;&gt;&gt; b.red 
+        0.0 
+        &gt;&gt;&gt; b.blue 
+        1.0 
+        &gt;&gt;&gt; b.green 
+        0.0 
+ 
+        &gt;&gt;&gt; b.rgb 
+        (0.0, 0.0, 1.0) 
+        &gt;&gt;&gt; b.hsl  # doctest: +ELLIPSIS 
+        (0.66..., 1.0, 0.5) 
+        &gt;&gt;&gt; b.hex 
+        '#00f' 
+ 
+    Change values 
+    ------------- 
+ 
+    Let's change Hue toward red tint: 
+ 
+        &gt;&gt;&gt; b.hue = 0.0 
+        &gt;&gt;&gt; b.hex 
+        '#f00' 
+ 
+        &gt;&gt;&gt; b.hue = 2.0/3 
+        &gt;&gt;&gt; b.hex 
+        '#00f' 
+ 
+    In the other way round: 
+ 
+        &gt;&gt;&gt; b.hex = '#f00' 
+        &gt;&gt;&gt; b.hsl 
+        (0.0, 1.0, 0.5) 
+ 
+    Long hex can be accessed directly: 
+ 
+        &gt;&gt;&gt; b.hex_l = '#123456' 
+        &gt;&gt;&gt; b.hex_l 
+        '#123456' 
+        &gt;&gt;&gt; b.hex 
+        '#123456' 
+ 
+        &gt;&gt;&gt; b.hex_l = '#ff0000' 
+        &gt;&gt;&gt; b.hex_l 
+        '#ff0000' 
+        &gt;&gt;&gt; b.hex 
+        '#f00' 
+ 
+    Convenience 
+    ----------- 
+ 
+        &gt;&gt;&gt; c = Color('blue') 
+        &gt;&gt;&gt; c 
+        &lt;Color blue&gt; 
+        &gt;&gt;&gt; c.hue = 0 
+        &gt;&gt;&gt; c 
+        &lt;Color red&gt; 
+ 
+        &gt;&gt;&gt; c.saturation = 0.0 
+        &gt;&gt;&gt; c.hsl  # doctest: +ELLIPSIS 
+        (..., 0.0, 0.5) 
+        &gt;&gt;&gt; c.rgb 
+        (0.5, 0.5, 0.5) 
+        &gt;&gt;&gt; c.hex 
+        '#7f7f7f' 
+        &gt;&gt;&gt; c 
+        &lt;Color #7f7f7f&gt; 
+ 
+        &gt;&gt;&gt; c.luminance = 0.0 
+        &gt;&gt;&gt; c 
+        &lt;Color black&gt; 
+ 
+        &gt;&gt;&gt; c.hex 
+        '#000' 
+ 
+        &gt;&gt;&gt; c.green = 1.0 
+        &gt;&gt;&gt; c.blue = 1.0 
+        &gt;&gt;&gt; c.hex 
+        '#0ff' 
+        &gt;&gt;&gt; c 
+        &lt;Color cyan&gt; 
+ 
+        &gt;&gt;&gt; c = Color('blue', luminance=0.75) 
+        &gt;&gt;&gt; c 
+        &lt;Color #7f7fff&gt; 
+ 
+        &gt;&gt;&gt; c = Color('red', red=0.5) 
+        &gt;&gt;&gt; c 
+        &lt;Color #7f0000&gt; 
+ 
+        &gt;&gt;&gt; print(c) 
+        #7f0000 
+ 
+    You can try to query unexisting attributes: 
+ 
+        &gt;&gt;&gt; c.lightness  # doctest: +ELLIPSIS 
+        Traceback (most recent call last): 
+        ... 
+        AttributeError: 'lightness' not found 
+ 
+    TODO: could add HSV, CMYK, YUV conversion. 
+ 
+#     &gt;&gt;&gt; b.hsv 
+#     &gt;&gt;&gt; b.value 
+#     &gt;&gt;&gt; b.cyan 
+#     &gt;&gt;&gt; b.magenta 
+#     &gt;&gt;&gt; b.yellow 
+#     &gt;&gt;&gt; b.key 
+#     &gt;&gt;&gt; b.cmyk 
+ 
+ 
+    Recursive init 
+    -------------- 
+ 
+    To support blind conversion of web strings (or already converted object), 
+    the Color object supports instantiation with another Color object. 
+ 
+        &gt;&gt;&gt; Color(Color(Color('red'))) 
+        &lt;Color red&gt; 
+ 
+    Equality support 
+    ---------------- 
+ 
+    Default equality is RGB hex comparison: 
+ 
+        &gt;&gt;&gt; Color('red') == Color('blue') 
+        False 
+        &gt;&gt;&gt; Color('red') == Color('red') 
+        True 
+        &gt;&gt;&gt; Color('red') != Color('blue') 
+        True 
+        &gt;&gt;&gt; Color('red') != Color('red') 
+        False 
+ 
+    But this can be changed: 
+ 
+        &gt;&gt;&gt; saturation_equality = lambda c1, c2: c1.luminance == c2.luminance 
+        &gt;&gt;&gt; Color('red', equality=saturation_equality) == Color('blue') 
+        True 
+ 
+ 
+    Subclassing support 
+    ------------------- 
+ 
+    You should be able to subclass ``Color`` object without any issues:: 
+ 
+        &gt;&gt;&gt; class Tint(Color): 
+        ...     pass 
+ 
+    And keep the internal API working:: 
+ 
+        &gt;&gt;&gt; Tint(&quot;red&quot;).hsl 
+        (0.0, 1.0, 0.5) 
+ 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">_hsl = </span><span class="s3">None   </span><span class="s0">## internal representation</span>
+
+    <span class="s3">def </span><span class="s1">__init__(self</span><span class="s3">, </span><span class="s1">color=</span><span class="s3">None,</span>
+                 <span class="s1">pick_for=</span><span class="s3">None, </span><span class="s1">picker=RGB_color_picker</span><span class="s3">, </span><span class="s1">pick_key=hash_or_str</span><span class="s3">,</span>
+                 <span class="s1">**kwargs):</span>
+
+        <span class="s3">if </span><span class="s1">pick_key </span><span class="s3">is None</span><span class="s1">:</span>
+            <span class="s1">pick_key = </span><span class="s3">lambda </span><span class="s1">x: x</span>
+
+        <span class="s3">if </span><span class="s1">pick_for </span><span class="s3">is not None</span><span class="s1">:</span>
+            <span class="s1">color = picker(pick_key(pick_for))</span>
+
+        <span class="s3">if </span><span class="s1">isinstance(color</span><span class="s3">, </span><span class="s1">Color):</span>
+            <span class="s1">self.web = color.web</span>
+        <span class="s3">else</span><span class="s1">:</span>
+            <span class="s1">self.web = color </span><span class="s3">if </span><span class="s1">color </span><span class="s3">else </span><span class="s5">'black'</span>
+
+        <span class="s1">self.equality = RGB_equivalence</span>
+
+        <span class="s3">for </span><span class="s1">k</span><span class="s3">, </span><span class="s1">v </span><span class="s3">in </span><span class="s1">kwargs.items():</span>
+            <span class="s1">setattr(self</span><span class="s3">, </span><span class="s1">k</span><span class="s3">, </span><span class="s1">v)</span>
+
+    <span class="s3">def </span><span class="s1">__getattr__(self</span><span class="s3">, </span><span class="s1">label):</span>
+        <span class="s3">if </span><span class="s1">label.startswith(</span><span class="s5">&quot;get_&quot;</span><span class="s1">):</span>
+            <span class="s3">raise </span><span class="s1">AttributeError(</span><span class="s5">&quot;'%s' not found&quot; </span><span class="s1">% label)</span>
+        <span class="s3">try</span><span class="s1">:</span>
+            <span class="s3">return </span><span class="s1">getattr(self</span><span class="s3">, </span><span class="s5">'get_' </span><span class="s1">+ label)()</span>
+        <span class="s3">except </span><span class="s1">AttributeError:</span>
+            <span class="s3">raise </span><span class="s1">AttributeError(</span><span class="s5">&quot;'%s' not found&quot; </span><span class="s1">% label)</span>
+
+    <span class="s3">def </span><span class="s1">__setattr__(self</span><span class="s3">, </span><span class="s1">label</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s3">if </span><span class="s1">label </span><span class="s3">not in </span><span class="s1">[</span><span class="s5">&quot;_hsl&quot;</span><span class="s3">, </span><span class="s5">&quot;equality&quot;</span><span class="s1">]:</span>
+            <span class="s1">fc = getattr(self</span><span class="s3">, </span><span class="s5">'set_' </span><span class="s1">+ label)</span>
+            <span class="s1">fc(value)</span>
+        <span class="s3">else</span><span class="s1">:</span>
+            <span class="s1">self.__dict__[label] = value</span>
+
+    <span class="s0">##</span>
+    <span class="s0">## Get</span>
+    <span class="s0">##</span>
+
+    <span class="s3">def </span><span class="s1">get_hsl(self):</span>
+        <span class="s3">return </span><span class="s1">tuple(self._hsl)</span>
+
+    <span class="s3">def </span><span class="s1">get_hex(self):</span>
+        <span class="s3">return </span><span class="s1">rgb2hex(self.rgb)</span>
+
+    <span class="s3">def </span><span class="s1">get_hex_l(self):</span>
+        <span class="s3">return </span><span class="s1">rgb2hex(self.rgb</span><span class="s3">, </span><span class="s1">force_long=</span><span class="s3">True</span><span class="s1">)</span>
+
+    <span class="s3">def </span><span class="s1">get_rgb(self):</span>
+        <span class="s3">return </span><span class="s1">hsl2rgb(self.hsl)</span>
+
+    <span class="s3">def </span><span class="s1">get_hue(self):</span>
+        <span class="s3">return </span><span class="s1">self.hsl[</span><span class="s4">0</span><span class="s1">]</span>
+
+    <span class="s3">def </span><span class="s1">get_saturation(self):</span>
+        <span class="s3">return </span><span class="s1">self.hsl[</span><span class="s4">1</span><span class="s1">]</span>
+
+    <span class="s3">def </span><span class="s1">get_luminance(self):</span>
+        <span class="s3">return </span><span class="s1">self.hsl[</span><span class="s4">2</span><span class="s1">]</span>
+
+    <span class="s3">def </span><span class="s1">get_red(self):</span>
+        <span class="s3">return </span><span class="s1">self.rgb[</span><span class="s4">0</span><span class="s1">]</span>
+
+    <span class="s3">def </span><span class="s1">get_green(self):</span>
+        <span class="s3">return </span><span class="s1">self.rgb[</span><span class="s4">1</span><span class="s1">]</span>
+
+    <span class="s3">def </span><span class="s1">get_blue(self):</span>
+        <span class="s3">return </span><span class="s1">self.rgb[</span><span class="s4">2</span><span class="s1">]</span>
+
+    <span class="s3">def </span><span class="s1">get_web(self):</span>
+        <span class="s3">return </span><span class="s1">hex2web(self.hex)</span>
+
+    <span class="s0">##</span>
+    <span class="s0">## Set</span>
+    <span class="s0">##</span>
+
+    <span class="s3">def </span><span class="s1">set_hsl(self</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s1">self._hsl = list(value)</span>
+
+    <span class="s3">def </span><span class="s1">set_rgb(self</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s1">self.hsl = rgb2hsl(value)</span>
+
+    <span class="s3">def </span><span class="s1">set_hue(self</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s1">self._hsl[</span><span class="s4">0</span><span class="s1">] = value</span>
+
+    <span class="s3">def </span><span class="s1">set_saturation(self</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s1">self._hsl[</span><span class="s4">1</span><span class="s1">] = value</span>
+
+    <span class="s3">def </span><span class="s1">set_luminance(self</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s1">self._hsl[</span><span class="s4">2</span><span class="s1">] = value</span>
+
+    <span class="s3">def </span><span class="s1">set_red(self</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s1">_</span><span class="s3">, </span><span class="s1">g</span><span class="s3">, </span><span class="s1">b = self.rgb</span>
+        <span class="s1">self.rgb = (value</span><span class="s3">, </span><span class="s1">g</span><span class="s3">, </span><span class="s1">b)</span>
+
+    <span class="s3">def </span><span class="s1">set_green(self</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s1">r</span><span class="s3">, </span><span class="s1">_</span><span class="s3">, </span><span class="s1">b = self.rgb</span>
+        <span class="s1">self.rgb = (r</span><span class="s3">, </span><span class="s1">value</span><span class="s3">, </span><span class="s1">b)</span>
+
+    <span class="s3">def </span><span class="s1">set_blue(self</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s1">r</span><span class="s3">, </span><span class="s1">g</span><span class="s3">, </span><span class="s1">_ = self.rgb</span>
+        <span class="s1">self.rgb = (r</span><span class="s3">, </span><span class="s1">g</span><span class="s3">, </span><span class="s1">value)</span>
+
+    <span class="s3">def </span><span class="s1">set_hex(self</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s1">self.rgb = hex2rgb(value)</span>
+
+    <span class="s1">set_hex_l = set_hex</span>
+
+    <span class="s3">def </span><span class="s1">set_web(self</span><span class="s3">, </span><span class="s1">value):</span>
+        <span class="s1">self.hex = web2hex(value)</span>
+
+    <span class="s0">## range of color generation</span>
+
+    <span class="s3">def </span><span class="s1">range_to(self</span><span class="s3">, </span><span class="s1">value</span><span class="s3">, </span><span class="s1">steps):</span>
+        <span class="s3">for </span><span class="s1">hsl </span><span class="s3">in </span><span class="s1">color_scale(self._hsl</span><span class="s3">, </span><span class="s1">Color(value).hsl</span><span class="s3">, </span><span class="s1">steps - </span><span class="s4">1</span><span class="s1">):</span>
+            <span class="s3">yield </span><span class="s1">Color(hsl=hsl)</span>
+
+    <span class="s0">##</span>
+    <span class="s0">## Convenience</span>
+    <span class="s0">##</span>
+
+    <span class="s3">def </span><span class="s1">__str__(self):</span>
+        <span class="s3">return </span><span class="s5">&quot;%s&quot; </span><span class="s1">% self.web</span>
+
+    <span class="s3">def </span><span class="s1">__repr__(self):</span>
+        <span class="s3">return </span><span class="s5">&quot;&lt;Color %s&gt;&quot; </span><span class="s1">% self.web</span>
+
+    <span class="s3">def </span><span class="s1">__eq__(self</span><span class="s3">, </span><span class="s1">other):</span>
+        <span class="s3">if </span><span class="s1">isinstance(other</span><span class="s3">, </span><span class="s1">Color):</span>
+            <span class="s3">return </span><span class="s1">self.equality(self</span><span class="s3">, </span><span class="s1">other)</span>
+        <span class="s3">return </span><span class="s1">NotImplemented</span>
+
+    <span class="s3">if </span><span class="s1">sys.version_info[</span><span class="s4">0</span><span class="s1">] == </span><span class="s4">2</span><span class="s1">:</span>
+        <span class="s0">## Note: intended to be a backport of python 3 behavior</span>
+        <span class="s3">def </span><span class="s1">__ne__(self</span><span class="s3">, </span><span class="s1">other):</span>
+            <span class="s1">equal = self.__eq__(other)</span>
+            <span class="s3">return </span><span class="s1">equal </span><span class="s3">if </span><span class="s1">equal </span><span class="s3">is </span><span class="s1">NotImplemented </span><span class="s3">else not </span><span class="s1">equal</span>
+
+
+<span class="s1">RGB_equivalence = </span><span class="s3">lambda </span><span class="s1">c1</span><span class="s3">, </span><span class="s1">c2: c1.hex_l == c2.hex_l</span>
+<span class="s1">HSL_equivalence = </span><span class="s3">lambda </span><span class="s1">c1</span><span class="s3">, </span><span class="s1">c2: c1._hsl == c2._hsl</span>
+
+
+<span class="s3">def </span><span class="s1">make_color_factory(**kwargs_defaults):</span>
+
+    <span class="s3">def </span><span class="s1">ColorFactory(*args</span><span class="s3">, </span><span class="s1">**kwargs):</span>
+        <span class="s1">new_kwargs = kwargs_defaults.copy()</span>
+        <span class="s1">new_kwargs.update(kwargs)</span>
+        <span class="s3">return </span><span class="s1">Color(*args</span><span class="s3">, </span><span class="s1">**new_kwargs)</span>
+    <span class="s3">return </span><span class="s1">ColorFactory</span>
+</pre>
+</body>
+</html>

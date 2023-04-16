@@ -1,0 +1,51 @@
+<html>
+<head>
+<title>autonotebook.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #629755; font-style: italic;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #cc7832;}
+.s3 { color: #6a8759;}
+.s4 { color: #808080;}
+.s5 { color: #6897bb;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+autonotebook.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+Automatically choose between `tqdm.notebook` and `tqdm.std`. 
+ 
+Usage: 
+&gt;&gt;&gt; from tqdm.autonotebook import trange, tqdm 
+&gt;&gt;&gt; for i in trange(10): 
+...     ... 
+&quot;&quot;&quot;</span>
+<span class="s2">import </span><span class="s1">sys</span>
+<span class="s2">from </span><span class="s1">warnings </span><span class="s2">import </span><span class="s1">warn</span>
+
+<span class="s2">try</span><span class="s1">:</span>
+    <span class="s1">get_ipython = sys.modules[</span><span class="s3">'IPython'</span><span class="s1">].get_ipython</span>
+    <span class="s2">if </span><span class="s3">'IPKernelApp' </span><span class="s2">not in </span><span class="s1">get_ipython().config:  </span><span class="s4"># pragma: no cover</span>
+        <span class="s2">raise </span><span class="s1">ImportError(</span><span class="s3">&quot;console&quot;</span><span class="s1">)</span>
+    <span class="s2">from </span><span class="s1">.notebook </span><span class="s2">import </span><span class="s1">WARN_NOIPYW</span><span class="s2">, </span><span class="s1">IProgress</span>
+    <span class="s2">if </span><span class="s1">IProgress </span><span class="s2">is None</span><span class="s1">:</span>
+        <span class="s2">from </span><span class="s1">.std </span><span class="s2">import </span><span class="s1">TqdmWarning</span>
+        <span class="s1">warn(WARN_NOIPYW</span><span class="s2">, </span><span class="s1">TqdmWarning</span><span class="s2">, </span><span class="s1">stacklevel=</span><span class="s5">2</span><span class="s1">)</span>
+        <span class="s2">raise </span><span class="s1">ImportError(</span><span class="s3">'ipywidgets'</span><span class="s1">)</span>
+<span class="s2">except </span><span class="s1">Exception:</span>
+    <span class="s2">from </span><span class="s1">.std </span><span class="s2">import </span><span class="s1">tqdm</span><span class="s2">, </span><span class="s1">trange</span>
+<span class="s2">else</span><span class="s1">:  </span><span class="s4"># pragma: no cover</span>
+    <span class="s2">from </span><span class="s1">.notebook </span><span class="s2">import </span><span class="s1">tqdm</span><span class="s2">, </span><span class="s1">trange</span>
+    <span class="s2">from </span><span class="s1">.std </span><span class="s2">import </span><span class="s1">TqdmExperimentalWarning</span>
+    <span class="s1">warn(</span><span class="s3">&quot;Using `tqdm.autonotebook.tqdm` in notebook mode.&quot;</span>
+         <span class="s3">&quot; Use `tqdm.tqdm` instead to force console mode&quot;</span>
+         <span class="s3">&quot; (e.g. in jupyter console)&quot;</span><span class="s2">, </span><span class="s1">TqdmExperimentalWarning</span><span class="s2">, </span><span class="s1">stacklevel=</span><span class="s5">2</span><span class="s1">)</span>
+<span class="s1">__all__ = [</span><span class="s3">&quot;tqdm&quot;</span><span class="s2">, </span><span class="s3">&quot;trange&quot;</span><span class="s1">]</span>
+</pre>
+</body>
+</html>

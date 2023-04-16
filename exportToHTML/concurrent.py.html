@@ -1,0 +1,127 @@
+<html>
+<head>
+<title>concurrent.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #629755; font-style: italic;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #cc7832;}
+.s3 { color: #6a8759;}
+.s4 { color: #808080;}
+.s5 { color: #6897bb;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+concurrent.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+Thin wrappers around `concurrent.futures`. 
+&quot;&quot;&quot;</span>
+<span class="s2">from </span><span class="s1">contextlib </span><span class="s2">import </span><span class="s1">contextmanager</span>
+<span class="s2">from </span><span class="s1">operator </span><span class="s2">import </span><span class="s1">length_hint</span>
+<span class="s2">from </span><span class="s1">os </span><span class="s2">import </span><span class="s1">cpu_count</span>
+
+<span class="s2">from </span><span class="s1">..auto </span><span class="s2">import </span><span class="s1">tqdm </span><span class="s2">as </span><span class="s1">tqdm_auto</span>
+<span class="s2">from </span><span class="s1">..std </span><span class="s2">import </span><span class="s1">TqdmWarning</span>
+
+<span class="s1">__author__ = {</span><span class="s3">&quot;github.com/&quot;</span><span class="s1">: [</span><span class="s3">&quot;casperdcl&quot;</span><span class="s1">]}</span>
+<span class="s1">__all__ = [</span><span class="s3">'thread_map'</span><span class="s2">, </span><span class="s3">'process_map'</span><span class="s1">]</span>
+
+
+<span class="s1">@contextmanager</span>
+<span class="s2">def </span><span class="s1">ensure_lock(tqdm_class</span><span class="s2">, </span><span class="s1">lock_name=</span><span class="s3">&quot;&quot;</span><span class="s1">):</span>
+    <span class="s0">&quot;&quot;&quot;get (create if necessary) and then restore `tqdm_class`'s lock&quot;&quot;&quot;</span>
+    <span class="s1">old_lock = getattr(tqdm_class</span><span class="s2">, </span><span class="s3">'_lock'</span><span class="s2">, None</span><span class="s1">)  </span><span class="s4"># don't create a new lock</span>
+    <span class="s1">lock = old_lock </span><span class="s2">or </span><span class="s1">tqdm_class.get_lock()  </span><span class="s4"># maybe create a new lock</span>
+    <span class="s1">lock = getattr(lock</span><span class="s2">, </span><span class="s1">lock_name</span><span class="s2">, </span><span class="s1">lock)  </span><span class="s4"># maybe subtype</span>
+    <span class="s1">tqdm_class.set_lock(lock)</span>
+    <span class="s2">yield </span><span class="s1">lock</span>
+    <span class="s2">if </span><span class="s1">old_lock </span><span class="s2">is None</span><span class="s1">:</span>
+        <span class="s2">del </span><span class="s1">tqdm_class._lock</span>
+    <span class="s2">else</span><span class="s1">:</span>
+        <span class="s1">tqdm_class.set_lock(old_lock)</span>
+
+
+<span class="s2">def </span><span class="s1">_executor_map(PoolExecutor</span><span class="s2">, </span><span class="s1">fn</span><span class="s2">, </span><span class="s1">*iterables</span><span class="s2">, </span><span class="s1">**tqdm_kwargs):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Implementation of `thread_map` and `process_map`. 
+ 
+    Parameters 
+    ---------- 
+    tqdm_class  : [default: tqdm.auto.tqdm]. 
+    max_workers  : [default: min(32, cpu_count() + 4)]. 
+    chunksize  : [default: 1]. 
+    lock_name  : [default: &quot;&quot;:str]. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">kwargs = tqdm_kwargs.copy()</span>
+    <span class="s2">if </span><span class="s3">&quot;total&quot; </span><span class="s2">not in </span><span class="s1">kwargs:</span>
+        <span class="s1">kwargs[</span><span class="s3">&quot;total&quot;</span><span class="s1">] = length_hint(iterables[</span><span class="s5">0</span><span class="s1">])</span>
+    <span class="s1">tqdm_class = kwargs.pop(</span><span class="s3">&quot;tqdm_class&quot;</span><span class="s2">, </span><span class="s1">tqdm_auto)</span>
+    <span class="s1">max_workers = kwargs.pop(</span><span class="s3">&quot;max_workers&quot;</span><span class="s2">, </span><span class="s1">min(</span><span class="s5">32</span><span class="s2">, </span><span class="s1">cpu_count() + </span><span class="s5">4</span><span class="s1">))</span>
+    <span class="s1">chunksize = kwargs.pop(</span><span class="s3">&quot;chunksize&quot;</span><span class="s2">, </span><span class="s5">1</span><span class="s1">)</span>
+    <span class="s1">lock_name = kwargs.pop(</span><span class="s3">&quot;lock_name&quot;</span><span class="s2">, </span><span class="s3">&quot;&quot;</span><span class="s1">)</span>
+    <span class="s2">with </span><span class="s1">ensure_lock(tqdm_class</span><span class="s2">, </span><span class="s1">lock_name=lock_name) </span><span class="s2">as </span><span class="s1">lk:</span>
+        <span class="s4"># share lock in case workers are already using `tqdm`</span>
+        <span class="s2">with </span><span class="s1">PoolExecutor(max_workers=max_workers</span><span class="s2">, </span><span class="s1">initializer=tqdm_class.set_lock</span><span class="s2">,</span>
+                          <span class="s1">initargs=(lk</span><span class="s2">,</span><span class="s1">)) </span><span class="s2">as </span><span class="s1">ex:</span>
+            <span class="s2">return </span><span class="s1">list(tqdm_class(ex.map(fn</span><span class="s2">, </span><span class="s1">*iterables</span><span class="s2">, </span><span class="s1">chunksize=chunksize)</span><span class="s2">, </span><span class="s1">**kwargs))</span>
+
+
+<span class="s2">def </span><span class="s1">thread_map(fn</span><span class="s2">, </span><span class="s1">*iterables</span><span class="s2">, </span><span class="s1">**tqdm_kwargs):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Equivalent of `list(map(fn, *iterables))` 
+    driven by `concurrent.futures.ThreadPoolExecutor`. 
+ 
+    Parameters 
+    ---------- 
+    tqdm_class  : optional 
+        `tqdm` class to use for bars [default: tqdm.auto.tqdm]. 
+    max_workers  : int, optional 
+        Maximum number of workers to spawn; passed to 
+        `concurrent.futures.ThreadPoolExecutor.__init__`. 
+        [default: max(32, cpu_count() + 4)]. 
+    &quot;&quot;&quot;</span>
+    <span class="s2">from </span><span class="s1">concurrent.futures </span><span class="s2">import </span><span class="s1">ThreadPoolExecutor</span>
+    <span class="s2">return </span><span class="s1">_executor_map(ThreadPoolExecutor</span><span class="s2">, </span><span class="s1">fn</span><span class="s2">, </span><span class="s1">*iterables</span><span class="s2">, </span><span class="s1">**tqdm_kwargs)</span>
+
+
+<span class="s2">def </span><span class="s1">process_map(fn</span><span class="s2">, </span><span class="s1">*iterables</span><span class="s2">, </span><span class="s1">**tqdm_kwargs):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Equivalent of `list(map(fn, *iterables))` 
+    driven by `concurrent.futures.ProcessPoolExecutor`. 
+ 
+    Parameters 
+    ---------- 
+    tqdm_class  : optional 
+        `tqdm` class to use for bars [default: tqdm.auto.tqdm]. 
+    max_workers  : int, optional 
+        Maximum number of workers to spawn; passed to 
+        `concurrent.futures.ProcessPoolExecutor.__init__`. 
+        [default: min(32, cpu_count() + 4)]. 
+    chunksize  : int, optional 
+        Size of chunks sent to worker processes; passed to 
+        `concurrent.futures.ProcessPoolExecutor.map`. [default: 1]. 
+    lock_name  : str, optional 
+        Member of `tqdm_class.get_lock()` to use [default: mp_lock]. 
+    &quot;&quot;&quot;</span>
+    <span class="s2">from </span><span class="s1">concurrent.futures </span><span class="s2">import </span><span class="s1">ProcessPoolExecutor</span>
+    <span class="s2">if </span><span class="s1">iterables </span><span class="s2">and </span><span class="s3">&quot;chunksize&quot; </span><span class="s2">not in </span><span class="s1">tqdm_kwargs:</span>
+        <span class="s4"># default `chunksize=1` has poor performance for large iterables</span>
+        <span class="s4"># (most time spent dispatching items to workers).</span>
+        <span class="s1">longest_iterable_len = max(map(length_hint</span><span class="s2">, </span><span class="s1">iterables))</span>
+        <span class="s2">if </span><span class="s1">longest_iterable_len &gt; </span><span class="s5">1000</span><span class="s1">:</span>
+            <span class="s2">from </span><span class="s1">warnings </span><span class="s2">import </span><span class="s1">warn</span>
+            <span class="s1">warn(</span><span class="s3">&quot;Iterable length %d &gt; 1000 but `chunksize` is not set.&quot;</span>
+                 <span class="s3">&quot; This may seriously degrade multiprocess performance.&quot;</span>
+                 <span class="s3">&quot; Set `chunksize=1` or more.&quot; </span><span class="s1">% longest_iterable_len</span><span class="s2">,</span>
+                 <span class="s1">TqdmWarning</span><span class="s2">, </span><span class="s1">stacklevel=</span><span class="s5">2</span><span class="s1">)</span>
+    <span class="s2">if </span><span class="s3">&quot;lock_name&quot; </span><span class="s2">not in </span><span class="s1">tqdm_kwargs:</span>
+        <span class="s1">tqdm_kwargs = tqdm_kwargs.copy()</span>
+        <span class="s1">tqdm_kwargs[</span><span class="s3">&quot;lock_name&quot;</span><span class="s1">] = </span><span class="s3">&quot;mp_lock&quot;</span>
+    <span class="s2">return </span><span class="s1">_executor_map(ProcessPoolExecutor</span><span class="s2">, </span><span class="s1">fn</span><span class="s2">, </span><span class="s1">*iterables</span><span class="s2">, </span><span class="s1">**tqdm_kwargs)</span>
+</pre>
+</body>
+</html>

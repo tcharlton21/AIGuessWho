@@ -1,0 +1,1543 @@
+<html>
+<head>
+<title>std.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #629755; font-style: italic;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #cc7832;}
+.s3 { color: #6a8759;}
+.s4 { color: #808080;}
+.s5 { color: #6897bb;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+std.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+Customisable progressbar decorator for iterators. 
+Includes a default `range` iterator printing to `stderr`. 
+ 
+Usage: 
+&gt;&gt;&gt; from tqdm import trange, tqdm 
+&gt;&gt;&gt; for i in trange(10): 
+...     ... 
+&quot;&quot;&quot;</span>
+<span class="s2">import </span><span class="s1">sys</span>
+<span class="s2">from </span><span class="s1">collections </span><span class="s2">import </span><span class="s1">OrderedDict</span><span class="s2">, </span><span class="s1">defaultdict</span>
+<span class="s2">from </span><span class="s1">contextlib </span><span class="s2">import </span><span class="s1">contextmanager</span>
+<span class="s2">from </span><span class="s1">datetime </span><span class="s2">import </span><span class="s1">datetime</span><span class="s2">, </span><span class="s1">timedelta</span>
+<span class="s2">from </span><span class="s1">numbers </span><span class="s2">import </span><span class="s1">Number</span>
+<span class="s2">from </span><span class="s1">time </span><span class="s2">import </span><span class="s1">time</span>
+<span class="s2">from </span><span class="s1">warnings </span><span class="s2">import </span><span class="s1">warn</span>
+<span class="s2">from </span><span class="s1">weakref </span><span class="s2">import </span><span class="s1">WeakSet</span>
+
+<span class="s2">from </span><span class="s1">._monitor </span><span class="s2">import </span><span class="s1">TMonitor</span>
+<span class="s2">from </span><span class="s1">.utils </span><span class="s2">import </span><span class="s1">(</span>
+    <span class="s1">CallbackIOWrapper</span><span class="s2">, </span><span class="s1">Comparable</span><span class="s2">, </span><span class="s1">DisableOnWriteError</span><span class="s2">, </span><span class="s1">FormatReplace</span><span class="s2">, </span><span class="s1">SimpleTextIOWrapper</span><span class="s2">,</span>
+    <span class="s1">_is_ascii</span><span class="s2">, </span><span class="s1">_screen_shape_wrapper</span><span class="s2">, </span><span class="s1">_supports_unicode</span><span class="s2">, </span><span class="s1">_term_move_up</span><span class="s2">, </span><span class="s1">disp_len</span><span class="s2">, </span><span class="s1">disp_trim)</span>
+
+<span class="s1">__author__ = </span><span class="s3">&quot;https://github.com/tqdm/tqdm#contributions&quot;</span>
+<span class="s1">__all__ = [</span><span class="s3">'tqdm'</span><span class="s2">, </span><span class="s3">'trange'</span><span class="s2">,</span>
+           <span class="s3">'TqdmTypeError'</span><span class="s2">, </span><span class="s3">'TqdmKeyError'</span><span class="s2">, </span><span class="s3">'TqdmWarning'</span><span class="s2">,</span>
+           <span class="s3">'TqdmExperimentalWarning'</span><span class="s2">, </span><span class="s3">'TqdmDeprecationWarning'</span><span class="s2">,</span>
+           <span class="s3">'TqdmMonitorWarning'</span><span class="s1">]</span>
+
+
+<span class="s2">class </span><span class="s1">TqdmTypeError(TypeError):</span>
+    <span class="s2">pass</span>
+
+
+<span class="s2">class </span><span class="s1">TqdmKeyError(KeyError):</span>
+    <span class="s2">pass</span>
+
+
+<span class="s2">class </span><span class="s1">TqdmWarning(Warning):</span>
+    <span class="s0">&quot;&quot;&quot;base class for all tqdm warnings. 
+ 
+    Used for non-external-code-breaking errors, such as garbled printing. 
+    &quot;&quot;&quot;</span>
+    <span class="s2">def </span><span class="s1">__init__(self</span><span class="s2">, </span><span class="s1">msg</span><span class="s2">, </span><span class="s1">fp_write=</span><span class="s2">None, </span><span class="s1">*a</span><span class="s2">, </span><span class="s1">**k):</span>
+        <span class="s2">if </span><span class="s1">fp_write </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s1">fp_write(</span><span class="s3">&quot;</span><span class="s2">\n</span><span class="s3">&quot; </span><span class="s1">+ self.__class__.__name__ + </span><span class="s3">&quot;: &quot; </span><span class="s1">+ str(msg).rstrip() + </span><span class="s3">'</span><span class="s2">\n</span><span class="s3">'</span><span class="s1">)</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">super(TqdmWarning</span><span class="s2">, </span><span class="s1">self).__init__(msg</span><span class="s2">, </span><span class="s1">*a</span><span class="s2">, </span><span class="s1">**k)</span>
+
+
+<span class="s2">class </span><span class="s1">TqdmExperimentalWarning(TqdmWarning</span><span class="s2">, </span><span class="s1">FutureWarning):</span>
+    <span class="s0">&quot;&quot;&quot;beta feature, unstable API and behaviour&quot;&quot;&quot;</span>
+    <span class="s2">pass</span>
+
+
+<span class="s2">class </span><span class="s1">TqdmDeprecationWarning(TqdmWarning</span><span class="s2">, </span><span class="s1">DeprecationWarning):</span>
+    <span class="s4"># not suppressed if raised</span>
+    <span class="s2">pass</span>
+
+
+<span class="s2">class </span><span class="s1">TqdmMonitorWarning(TqdmWarning</span><span class="s2">, </span><span class="s1">RuntimeWarning):</span>
+    <span class="s0">&quot;&quot;&quot;tqdm monitor errors which do not affect external functionality&quot;&quot;&quot;</span>
+    <span class="s2">pass</span>
+
+
+<span class="s2">def </span><span class="s1">TRLock(*args</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+    <span class="s0">&quot;&quot;&quot;threading RLock&quot;&quot;&quot;</span>
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s2">from </span><span class="s1">threading </span><span class="s2">import </span><span class="s1">RLock</span>
+        <span class="s2">return </span><span class="s1">RLock(*args</span><span class="s2">, </span><span class="s1">**kwargs)</span>
+    <span class="s2">except </span><span class="s1">(ImportError</span><span class="s2">, </span><span class="s1">OSError):  </span><span class="s4"># pragma: no cover</span>
+        <span class="s2">pass</span>
+
+
+<span class="s2">class </span><span class="s1">TqdmDefaultWriteLock(object):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Provide a default write lock for thread and multiprocessing safety. 
+    Works only on platforms supporting `fork` (so Windows is excluded). 
+    You must initialise a `tqdm` or `TqdmDefaultWriteLock` instance 
+    before forking in order for the write lock to work. 
+    On Windows, you need to supply the lock from the parent to the children as 
+    an argument to joblib or the parallelism lib you use. 
+    &quot;&quot;&quot;</span>
+    <span class="s4"># global thread lock so no setup required for multithreading.</span>
+    <span class="s4"># NB: Do not create multiprocessing lock as it sets the multiprocessing</span>
+    <span class="s4"># context, disallowing `spawn()`/`forkserver()`</span>
+    <span class="s1">th_lock = TRLock()</span>
+
+    <span class="s2">def </span><span class="s1">__init__(self):</span>
+        <span class="s4"># Create global parallelism locks to avoid racing issues with parallel</span>
+        <span class="s4"># bars works only if fork available (Linux/MacOSX, but not Windows)</span>
+        <span class="s1">cls = type(self)</span>
+        <span class="s1">root_lock = cls.th_lock</span>
+        <span class="s2">if </span><span class="s1">root_lock </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s1">root_lock.acquire()</span>
+        <span class="s1">cls.create_mp_lock()</span>
+        <span class="s1">self.locks = [lk </span><span class="s2">for </span><span class="s1">lk </span><span class="s2">in </span><span class="s1">[cls.mp_lock</span><span class="s2">, </span><span class="s1">cls.th_lock] </span><span class="s2">if </span><span class="s1">lk </span><span class="s2">is not None</span><span class="s1">]</span>
+        <span class="s2">if </span><span class="s1">root_lock </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s1">root_lock.release()</span>
+
+    <span class="s2">def </span><span class="s1">acquire(self</span><span class="s2">, </span><span class="s1">*a</span><span class="s2">, </span><span class="s1">**k):</span>
+        <span class="s2">for </span><span class="s1">lock </span><span class="s2">in </span><span class="s1">self.locks:</span>
+            <span class="s1">lock.acquire(*a</span><span class="s2">, </span><span class="s1">**k)</span>
+
+    <span class="s2">def </span><span class="s1">release(self):</span>
+        <span class="s2">for </span><span class="s1">lock </span><span class="s2">in </span><span class="s1">self.locks[::-</span><span class="s5">1</span><span class="s1">]:  </span><span class="s4"># Release in inverse order of acquisition</span>
+            <span class="s1">lock.release()</span>
+
+    <span class="s2">def </span><span class="s1">__enter__(self):</span>
+        <span class="s1">self.acquire()</span>
+
+    <span class="s2">def </span><span class="s1">__exit__(self</span><span class="s2">, </span><span class="s1">*exc):</span>
+        <span class="s1">self.release()</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s2">def </span><span class="s1">create_mp_lock(cls):</span>
+        <span class="s2">if not </span><span class="s1">hasattr(cls</span><span class="s2">, </span><span class="s3">'mp_lock'</span><span class="s1">):</span>
+            <span class="s2">try</span><span class="s1">:</span>
+                <span class="s2">from </span><span class="s1">multiprocessing </span><span class="s2">import </span><span class="s1">RLock</span>
+                <span class="s1">cls.mp_lock = RLock()</span>
+            <span class="s2">except </span><span class="s1">(ImportError</span><span class="s2">, </span><span class="s1">OSError):  </span><span class="s4"># pragma: no cover</span>
+                <span class="s1">cls.mp_lock = </span><span class="s2">None</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s2">def </span><span class="s1">create_th_lock(cls):</span>
+        <span class="s2">assert </span><span class="s1">hasattr(cls</span><span class="s2">, </span><span class="s3">'th_lock'</span><span class="s1">)</span>
+        <span class="s1">warn(</span><span class="s3">&quot;create_th_lock not needed anymore&quot;</span><span class="s2">, </span><span class="s1">TqdmDeprecationWarning</span><span class="s2">, </span><span class="s1">stacklevel=</span><span class="s5">2</span><span class="s1">)</span>
+
+
+<span class="s2">class </span><span class="s1">Bar(object):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    `str.format`-able bar with format specifiers: `[width][type]` 
+ 
+    - `width` 
+      + unspecified (default): use `self.default_len` 
+      + `int &gt;= 0`: overrides `self.default_len` 
+      + `int &lt; 0`: subtract from `self.default_len` 
+    - `type` 
+      + `a`: ascii (`charset=self.ASCII` override) 
+      + `u`: unicode (`charset=self.UTF` override) 
+      + `b`: blank (`charset=&quot;  &quot;` override) 
+    &quot;&quot;&quot;</span>
+    <span class="s1">ASCII = </span><span class="s3">&quot; 123456789#&quot;</span>
+    <span class="s1">UTF = </span><span class="s3">u&quot; &quot; </span><span class="s1">+ </span><span class="s3">u''</span><span class="s1">.join(map(chr</span><span class="s2">, </span><span class="s1">range(</span><span class="s5">0x258F</span><span class="s2">, </span><span class="s5">0x2587</span><span class="s2">, </span><span class="s1">-</span><span class="s5">1</span><span class="s1">)))</span>
+    <span class="s1">BLANK = </span><span class="s3">&quot;  &quot;</span>
+    <span class="s1">COLOUR_RESET = </span><span class="s3">'</span><span class="s2">\x1b</span><span class="s3">[0m'</span>
+    <span class="s1">COLOUR_RGB = </span><span class="s3">'</span><span class="s2">\x1b</span><span class="s3">[38;2;%d;%d;%dm'</span>
+    <span class="s1">COLOURS = {</span><span class="s3">'BLACK'</span><span class="s1">: </span><span class="s3">'</span><span class="s2">\x1b</span><span class="s3">[30m'</span><span class="s2">, </span><span class="s3">'RED'</span><span class="s1">: </span><span class="s3">'</span><span class="s2">\x1b</span><span class="s3">[31m'</span><span class="s2">, </span><span class="s3">'GREEN'</span><span class="s1">: </span><span class="s3">'</span><span class="s2">\x1b</span><span class="s3">[32m'</span><span class="s2">,</span>
+               <span class="s3">'YELLOW'</span><span class="s1">: </span><span class="s3">'</span><span class="s2">\x1b</span><span class="s3">[33m'</span><span class="s2">, </span><span class="s3">'BLUE'</span><span class="s1">: </span><span class="s3">'</span><span class="s2">\x1b</span><span class="s3">[34m'</span><span class="s2">, </span><span class="s3">'MAGENTA'</span><span class="s1">: </span><span class="s3">'</span><span class="s2">\x1b</span><span class="s3">[35m'</span><span class="s2">,</span>
+               <span class="s3">'CYAN'</span><span class="s1">: </span><span class="s3">'</span><span class="s2">\x1b</span><span class="s3">[36m'</span><span class="s2">, </span><span class="s3">'WHITE'</span><span class="s1">: </span><span class="s3">'</span><span class="s2">\x1b</span><span class="s3">[37m'</span><span class="s1">}</span>
+
+    <span class="s2">def </span><span class="s1">__init__(self</span><span class="s2">, </span><span class="s1">frac</span><span class="s2">, </span><span class="s1">default_len=</span><span class="s5">10</span><span class="s2">, </span><span class="s1">charset=UTF</span><span class="s2">, </span><span class="s1">colour=</span><span class="s2">None</span><span class="s1">):</span>
+        <span class="s2">if not </span><span class="s5">0 </span><span class="s1">&lt;= frac &lt;= </span><span class="s5">1</span><span class="s1">:</span>
+            <span class="s1">warn(</span><span class="s3">&quot;clamping frac to range [0, 1]&quot;</span><span class="s2">, </span><span class="s1">TqdmWarning</span><span class="s2">, </span><span class="s1">stacklevel=</span><span class="s5">2</span><span class="s1">)</span>
+            <span class="s1">frac = max(</span><span class="s5">0</span><span class="s2">, </span><span class="s1">min(</span><span class="s5">1</span><span class="s2">, </span><span class="s1">frac))</span>
+        <span class="s2">assert </span><span class="s1">default_len &gt; </span><span class="s5">0</span>
+        <span class="s1">self.frac = frac</span>
+        <span class="s1">self.default_len = default_len</span>
+        <span class="s1">self.charset = charset</span>
+        <span class="s1">self.colour = colour</span>
+
+    <span class="s1">@property</span>
+    <span class="s2">def </span><span class="s1">colour(self):</span>
+        <span class="s2">return </span><span class="s1">self._colour</span>
+
+    <span class="s1">@colour.setter</span>
+    <span class="s2">def </span><span class="s1">colour(self</span><span class="s2">, </span><span class="s1">value):</span>
+        <span class="s2">if not </span><span class="s1">value:</span>
+            <span class="s1">self._colour = </span><span class="s2">None</span>
+            <span class="s2">return</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s2">if </span><span class="s1">value.upper() </span><span class="s2">in </span><span class="s1">self.COLOURS:</span>
+                <span class="s1">self._colour = self.COLOURS[value.upper()]</span>
+            <span class="s2">elif </span><span class="s1">value[</span><span class="s5">0</span><span class="s1">] == </span><span class="s3">'#' </span><span class="s2">and </span><span class="s1">len(value) == </span><span class="s5">7</span><span class="s1">:</span>
+                <span class="s1">self._colour = self.COLOUR_RGB % tuple(</span>
+                    <span class="s1">int(i</span><span class="s2">, </span><span class="s5">16</span><span class="s1">) </span><span class="s2">for </span><span class="s1">i </span><span class="s2">in </span><span class="s1">(value[</span><span class="s5">1</span><span class="s1">:</span><span class="s5">3</span><span class="s1">]</span><span class="s2">, </span><span class="s1">value[</span><span class="s5">3</span><span class="s1">:</span><span class="s5">5</span><span class="s1">]</span><span class="s2">, </span><span class="s1">value[</span><span class="s5">5</span><span class="s1">:</span><span class="s5">7</span><span class="s1">]))</span>
+            <span class="s2">else</span><span class="s1">:</span>
+                <span class="s2">raise </span><span class="s1">KeyError</span>
+        <span class="s2">except </span><span class="s1">(KeyError</span><span class="s2">, </span><span class="s1">AttributeError):</span>
+            <span class="s1">warn(</span><span class="s3">&quot;Unknown colour (%s); valid choices: [hex (#00ff00), %s]&quot; </span><span class="s1">% (</span>
+                 <span class="s1">value</span><span class="s2">, </span><span class="s3">&quot;, &quot;</span><span class="s1">.join(self.COLOURS))</span><span class="s2">,</span>
+                 <span class="s1">TqdmWarning</span><span class="s2">, </span><span class="s1">stacklevel=</span><span class="s5">2</span><span class="s1">)</span>
+            <span class="s1">self._colour = </span><span class="s2">None</span>
+
+    <span class="s2">def </span><span class="s1">__format__(self</span><span class="s2">, </span><span class="s1">format_spec):</span>
+        <span class="s2">if </span><span class="s1">format_spec:</span>
+            <span class="s1">_type = format_spec[-</span><span class="s5">1</span><span class="s1">].lower()</span>
+            <span class="s2">try</span><span class="s1">:</span>
+                <span class="s1">charset = {</span><span class="s3">'a'</span><span class="s1">: self.ASCII</span><span class="s2">, </span><span class="s3">'u'</span><span class="s1">: self.UTF</span><span class="s2">, </span><span class="s3">'b'</span><span class="s1">: self.BLANK}[_type]</span>
+            <span class="s2">except </span><span class="s1">KeyError:</span>
+                <span class="s1">charset = self.charset</span>
+            <span class="s2">else</span><span class="s1">:</span>
+                <span class="s1">format_spec = format_spec[:-</span><span class="s5">1</span><span class="s1">]</span>
+            <span class="s2">if </span><span class="s1">format_spec:</span>
+                <span class="s1">N_BARS = int(format_spec)</span>
+                <span class="s2">if </span><span class="s1">N_BARS &lt; </span><span class="s5">0</span><span class="s1">:</span>
+                    <span class="s1">N_BARS += self.default_len</span>
+            <span class="s2">else</span><span class="s1">:</span>
+                <span class="s1">N_BARS = self.default_len</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">charset = self.charset</span>
+            <span class="s1">N_BARS = self.default_len</span>
+
+        <span class="s1">nsyms = len(charset) - </span><span class="s5">1</span>
+        <span class="s1">bar_length</span><span class="s2">, </span><span class="s1">frac_bar_length = divmod(int(self.frac * N_BARS * nsyms)</span><span class="s2">, </span><span class="s1">nsyms)</span>
+
+        <span class="s1">res = charset[-</span><span class="s5">1</span><span class="s1">] * bar_length</span>
+        <span class="s2">if </span><span class="s1">bar_length &lt; N_BARS:  </span><span class="s4"># whitespace padding</span>
+            <span class="s1">res = res + charset[frac_bar_length] + charset[</span><span class="s5">0</span><span class="s1">] * (N_BARS - bar_length - </span><span class="s5">1</span><span class="s1">)</span>
+        <span class="s2">return </span><span class="s1">self.colour + res + self.COLOUR_RESET </span><span class="s2">if </span><span class="s1">self.colour </span><span class="s2">else </span><span class="s1">res</span>
+
+
+<span class="s2">class </span><span class="s1">EMA(object):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Exponential moving average: smoothing to give progressively lower 
+    weights to older values. 
+ 
+    Parameters 
+    ---------- 
+    smoothing  : float, optional 
+        Smoothing factor in range [0, 1], [default: 0.3]. 
+        Increase to give more weight to recent values. 
+        Ranges from 0 (yields old value) to 1 (yields new value). 
+    &quot;&quot;&quot;</span>
+    <span class="s2">def </span><span class="s1">__init__(self</span><span class="s2">, </span><span class="s1">smoothing=</span><span class="s5">0.3</span><span class="s1">):</span>
+        <span class="s1">self.alpha = smoothing</span>
+        <span class="s1">self.last = </span><span class="s5">0</span>
+        <span class="s1">self.calls = </span><span class="s5">0</span>
+
+    <span class="s2">def </span><span class="s1">__call__(self</span><span class="s2">, </span><span class="s1">x=</span><span class="s2">None</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Parameters 
+        ---------- 
+        x  : float 
+            New value to include in EMA. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">beta = </span><span class="s5">1 </span><span class="s1">- self.alpha</span>
+        <span class="s2">if </span><span class="s1">x </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s1">self.last = self.alpha * x + beta * self.last</span>
+            <span class="s1">self.calls += </span><span class="s5">1</span>
+        <span class="s2">return </span><span class="s1">self.last / (</span><span class="s5">1 </span><span class="s1">- beta ** self.calls) </span><span class="s2">if </span><span class="s1">self.calls </span><span class="s2">else </span><span class="s1">self.last</span>
+
+
+<span class="s2">class </span><span class="s1">tqdm(Comparable):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Decorate an iterable object, returning an iterator which acts exactly 
+    like the original iterable, but prints a dynamically updating 
+    progressbar every time a value is requested. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">monitor_interval = </span><span class="s5">10  </span><span class="s4"># set to 0 to disable the thread</span>
+    <span class="s1">monitor = </span><span class="s2">None</span>
+    <span class="s1">_instances = WeakSet()</span>
+
+    <span class="s1">@staticmethod</span>
+    <span class="s2">def </span><span class="s1">format_sizeof(num</span><span class="s2">, </span><span class="s1">suffix=</span><span class="s3">''</span><span class="s2">, </span><span class="s1">divisor=</span><span class="s5">1000</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Formats a number (greater than unity) with SI Order of Magnitude 
+        prefixes. 
+ 
+        Parameters 
+        ---------- 
+        num  : float 
+            Number ( &gt;= 1) to format. 
+        suffix  : str, optional 
+            Post-postfix [default: '']. 
+        divisor  : float, optional 
+            Divisor between prefixes [default: 1000]. 
+ 
+        Returns 
+        ------- 
+        out  : str 
+            Number with Order of Magnitude SI unit postfix. 
+        &quot;&quot;&quot;</span>
+        <span class="s2">for </span><span class="s1">unit </span><span class="s2">in </span><span class="s1">[</span><span class="s3">''</span><span class="s2">, </span><span class="s3">'k'</span><span class="s2">, </span><span class="s3">'M'</span><span class="s2">, </span><span class="s3">'G'</span><span class="s2">, </span><span class="s3">'T'</span><span class="s2">, </span><span class="s3">'P'</span><span class="s2">, </span><span class="s3">'E'</span><span class="s2">, </span><span class="s3">'Z'</span><span class="s1">]:</span>
+            <span class="s2">if </span><span class="s1">abs(num) &lt; </span><span class="s5">999.5</span><span class="s1">:</span>
+                <span class="s2">if </span><span class="s1">abs(num) &lt; </span><span class="s5">99.95</span><span class="s1">:</span>
+                    <span class="s2">if </span><span class="s1">abs(num) &lt; </span><span class="s5">9.995</span><span class="s1">:</span>
+                        <span class="s2">return </span><span class="s3">'{0:1.2f}'</span><span class="s1">.format(num) + unit + suffix</span>
+                    <span class="s2">return </span><span class="s3">'{0:2.1f}'</span><span class="s1">.format(num) + unit + suffix</span>
+                <span class="s2">return </span><span class="s3">'{0:3.0f}'</span><span class="s1">.format(num) + unit + suffix</span>
+            <span class="s1">num /= divisor</span>
+        <span class="s2">return </span><span class="s3">'{0:3.1f}Y'</span><span class="s1">.format(num) + suffix</span>
+
+    <span class="s1">@staticmethod</span>
+    <span class="s2">def </span><span class="s1">format_interval(t):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Formats a number of seconds as a clock time, [H:]MM:SS 
+ 
+        Parameters 
+        ---------- 
+        t  : int 
+            Number of seconds. 
+ 
+        Returns 
+        ------- 
+        out  : str 
+            [H:]MM:SS 
+        &quot;&quot;&quot;</span>
+        <span class="s1">mins</span><span class="s2">, </span><span class="s1">s = divmod(int(t)</span><span class="s2">, </span><span class="s5">60</span><span class="s1">)</span>
+        <span class="s1">h</span><span class="s2">, </span><span class="s1">m = divmod(mins</span><span class="s2">, </span><span class="s5">60</span><span class="s1">)</span>
+        <span class="s2">if </span><span class="s1">h:</span>
+            <span class="s2">return </span><span class="s3">'{0:d}:{1:02d}:{2:02d}'</span><span class="s1">.format(h</span><span class="s2">, </span><span class="s1">m</span><span class="s2">, </span><span class="s1">s)</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s2">return </span><span class="s3">'{0:02d}:{1:02d}'</span><span class="s1">.format(m</span><span class="s2">, </span><span class="s1">s)</span>
+
+    <span class="s1">@staticmethod</span>
+    <span class="s2">def </span><span class="s1">format_num(n):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Intelligent scientific notation (.3g). 
+ 
+        Parameters 
+        ---------- 
+        n  : int or float or Numeric 
+            A Number. 
+ 
+        Returns 
+        ------- 
+        out  : str 
+            Formatted number. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">f = </span><span class="s3">'{0:.3g}'</span><span class="s1">.format(n).replace(</span><span class="s3">'+0'</span><span class="s2">, </span><span class="s3">'+'</span><span class="s1">).replace(</span><span class="s3">'-0'</span><span class="s2">, </span><span class="s3">'-'</span><span class="s1">)</span>
+        <span class="s1">n = str(n)</span>
+        <span class="s2">return </span><span class="s1">f </span><span class="s2">if </span><span class="s1">len(f) &lt; len(n) </span><span class="s2">else </span><span class="s1">n</span>
+
+    <span class="s1">@staticmethod</span>
+    <span class="s2">def </span><span class="s1">status_printer(file):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Manage the printing and in-place updating of a line of characters. 
+        Note that if the string is longer than a line, then in-place 
+        updating may not work (it will print a new line at each refresh). 
+        &quot;&quot;&quot;</span>
+        <span class="s1">fp = file</span>
+        <span class="s1">fp_flush = getattr(fp</span><span class="s2">, </span><span class="s3">'flush'</span><span class="s2">, lambda</span><span class="s1">: </span><span class="s2">None</span><span class="s1">)  </span><span class="s4"># pragma: no cover</span>
+        <span class="s2">if </span><span class="s1">fp </span><span class="s2">in </span><span class="s1">(sys.stderr</span><span class="s2">, </span><span class="s1">sys.stdout):</span>
+            <span class="s1">getattr(sys.stderr</span><span class="s2">, </span><span class="s3">'flush'</span><span class="s2">, lambda</span><span class="s1">: </span><span class="s2">None</span><span class="s1">)()</span>
+            <span class="s1">getattr(sys.stdout</span><span class="s2">, </span><span class="s3">'flush'</span><span class="s2">, lambda</span><span class="s1">: </span><span class="s2">None</span><span class="s1">)()</span>
+
+        <span class="s2">def </span><span class="s1">fp_write(s):</span>
+            <span class="s1">fp.write(str(s))</span>
+            <span class="s1">fp_flush()</span>
+
+        <span class="s1">last_len = [</span><span class="s5">0</span><span class="s1">]</span>
+
+        <span class="s2">def </span><span class="s1">print_status(s):</span>
+            <span class="s1">len_s = disp_len(s)</span>
+            <span class="s1">fp_write(</span><span class="s3">'</span><span class="s2">\r</span><span class="s3">' </span><span class="s1">+ s + (</span><span class="s3">' ' </span><span class="s1">* max(last_len[</span><span class="s5">0</span><span class="s1">] - len_s</span><span class="s2">, </span><span class="s5">0</span><span class="s1">)))</span>
+            <span class="s1">last_len[</span><span class="s5">0</span><span class="s1">] = len_s</span>
+
+        <span class="s2">return </span><span class="s1">print_status</span>
+
+    <span class="s1">@staticmethod</span>
+    <span class="s2">def </span><span class="s1">format_meter(n</span><span class="s2">, </span><span class="s1">total</span><span class="s2">, </span><span class="s1">elapsed</span><span class="s2">, </span><span class="s1">ncols=</span><span class="s2">None, </span><span class="s1">prefix=</span><span class="s3">''</span><span class="s2">, </span><span class="s1">ascii=</span><span class="s2">False, </span><span class="s1">unit=</span><span class="s3">'it'</span><span class="s2">,</span>
+                     <span class="s1">unit_scale=</span><span class="s2">False, </span><span class="s1">rate=</span><span class="s2">None, </span><span class="s1">bar_format=</span><span class="s2">None, </span><span class="s1">postfix=</span><span class="s2">None,</span>
+                     <span class="s1">unit_divisor=</span><span class="s5">1000</span><span class="s2">, </span><span class="s1">initial=</span><span class="s5">0</span><span class="s2">, </span><span class="s1">colour=</span><span class="s2">None, </span><span class="s1">**extra_kwargs):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Return a string-based progress bar given some parameters 
+ 
+        Parameters 
+        ---------- 
+        n  : int or float 
+            Number of finished iterations. 
+        total  : int or float 
+            The expected total number of iterations. If meaningless (None), 
+            only basic progress statistics are displayed (no ETA). 
+        elapsed  : float 
+            Number of seconds passed since start. 
+        ncols  : int, optional 
+            The width of the entire output message. If specified, 
+            dynamically resizes `{bar}` to stay within this bound 
+            [default: None]. If `0`, will not print any bar (only stats). 
+            The fallback is `{bar:10}`. 
+        prefix  : str, optional 
+            Prefix message (included in total width) [default: '']. 
+            Use as {desc} in bar_format string. 
+        ascii  : bool, optional or str, optional 
+            If not set, use unicode (smooth blocks) to fill the meter 
+            [default: False]. The fallback is to use ASCII characters 
+            &quot; 123456789#&quot;. 
+        unit  : str, optional 
+            The iteration unit [default: 'it']. 
+        unit_scale  : bool or int or float, optional 
+            If 1 or True, the number of iterations will be printed with an 
+            appropriate SI metric prefix (k = 10^3, M = 10^6, etc.) 
+            [default: False]. If any other non-zero number, will scale 
+            `total` and `n`. 
+        rate  : float, optional 
+            Manual override for iteration rate. 
+            If [default: None], uses n/elapsed. 
+        bar_format  : str, optional 
+            Specify a custom bar string formatting. May impact performance. 
+            [default: '{l_bar}{bar}{r_bar}'], where 
+            l_bar='{desc}: {percentage:3.0f}%|' and 
+            r_bar='| {n_fmt}/{total_fmt} [{elapsed}&lt;{remaining}, ' 
+              '{rate_fmt}{postfix}]' 
+            Possible vars: l_bar, bar, r_bar, n, n_fmt, total, total_fmt, 
+              percentage, elapsed, elapsed_s, ncols, nrows, desc, unit, 
+              rate, rate_fmt, rate_noinv, rate_noinv_fmt, 
+              rate_inv, rate_inv_fmt, postfix, unit_divisor, 
+              remaining, remaining_s, eta. 
+            Note that a trailing &quot;: &quot; is automatically removed after {desc} 
+            if the latter is empty. 
+        postfix  : *, optional 
+            Similar to `prefix`, but placed at the end 
+            (e.g. for additional stats). 
+            Note: postfix is usually a string (not a dict) for this method, 
+            and will if possible be set to postfix = ', ' + postfix. 
+            However other types are supported (#382). 
+        unit_divisor  : float, optional 
+            [default: 1000], ignored unless `unit_scale` is True. 
+        initial  : int or float, optional 
+            The initial counter value [default: 0]. 
+        colour  : str, optional 
+            Bar colour (e.g. 'green', '#00ff00'). 
+ 
+        Returns 
+        ------- 
+        out  : Formatted meter and stats, ready to display. 
+        &quot;&quot;&quot;</span>
+
+        <span class="s4"># sanity check: total</span>
+        <span class="s2">if </span><span class="s1">total </span><span class="s2">and </span><span class="s1">n &gt;= (total + </span><span class="s5">0.5</span><span class="s1">):  </span><span class="s4"># allow float imprecision (#849)</span>
+            <span class="s1">total = </span><span class="s2">None</span>
+
+        <span class="s4"># apply custom scale if necessary</span>
+        <span class="s2">if </span><span class="s1">unit_scale </span><span class="s2">and </span><span class="s1">unit_scale </span><span class="s2">not in </span><span class="s1">(</span><span class="s2">True, </span><span class="s5">1</span><span class="s1">):</span>
+            <span class="s2">if </span><span class="s1">total:</span>
+                <span class="s1">total *= unit_scale</span>
+            <span class="s1">n *= unit_scale</span>
+            <span class="s2">if </span><span class="s1">rate:</span>
+                <span class="s1">rate *= unit_scale  </span><span class="s4"># by default rate = self.avg_dn / self.avg_dt</span>
+            <span class="s1">unit_scale = </span><span class="s2">False</span>
+
+        <span class="s1">elapsed_str = tqdm.format_interval(elapsed)</span>
+
+        <span class="s4"># if unspecified, attempt to use rate = average speed</span>
+        <span class="s4"># (we allow manual override since predicting time is an arcane art)</span>
+        <span class="s2">if </span><span class="s1">rate </span><span class="s2">is None and </span><span class="s1">elapsed:</span>
+            <span class="s1">rate = (n - initial) / elapsed</span>
+        <span class="s1">inv_rate = </span><span class="s5">1 </span><span class="s1">/ rate </span><span class="s2">if </span><span class="s1">rate </span><span class="s2">else None</span>
+        <span class="s1">format_sizeof = tqdm.format_sizeof</span>
+        <span class="s1">rate_noinv_fmt = ((format_sizeof(rate) </span><span class="s2">if </span><span class="s1">unit_scale </span><span class="s2">else</span>
+                           <span class="s3">'{0:5.2f}'</span><span class="s1">.format(rate)) </span><span class="s2">if </span><span class="s1">rate </span><span class="s2">else </span><span class="s3">'?'</span><span class="s1">) + unit + </span><span class="s3">'/s'</span>
+        <span class="s1">rate_inv_fmt = (</span>
+            <span class="s1">(format_sizeof(inv_rate) </span><span class="s2">if </span><span class="s1">unit_scale </span><span class="s2">else </span><span class="s3">'{0:5.2f}'</span><span class="s1">.format(inv_rate))</span>
+            <span class="s2">if </span><span class="s1">inv_rate </span><span class="s2">else </span><span class="s3">'?'</span><span class="s1">) + </span><span class="s3">'s/' </span><span class="s1">+ unit</span>
+        <span class="s1">rate_fmt = rate_inv_fmt </span><span class="s2">if </span><span class="s1">inv_rate </span><span class="s2">and </span><span class="s1">inv_rate &gt; </span><span class="s5">1 </span><span class="s2">else </span><span class="s1">rate_noinv_fmt</span>
+
+        <span class="s2">if </span><span class="s1">unit_scale:</span>
+            <span class="s1">n_fmt = format_sizeof(n</span><span class="s2">, </span><span class="s1">divisor=unit_divisor)</span>
+            <span class="s1">total_fmt = format_sizeof(total</span><span class="s2">, </span><span class="s1">divisor=unit_divisor) </span><span class="s2">if </span><span class="s1">total </span><span class="s2">is not None else </span><span class="s3">'?'</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">n_fmt = str(n)</span>
+            <span class="s1">total_fmt = str(total) </span><span class="s2">if </span><span class="s1">total </span><span class="s2">is not None else </span><span class="s3">'?'</span>
+
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">postfix = </span><span class="s3">', ' </span><span class="s1">+ postfix </span><span class="s2">if </span><span class="s1">postfix </span><span class="s2">else </span><span class="s3">''</span>
+        <span class="s2">except </span><span class="s1">TypeError:</span>
+            <span class="s2">pass</span>
+
+        <span class="s1">remaining = (total - n) / rate </span><span class="s2">if </span><span class="s1">rate </span><span class="s2">and </span><span class="s1">total </span><span class="s2">else </span><span class="s5">0</span>
+        <span class="s1">remaining_str = tqdm.format_interval(remaining) </span><span class="s2">if </span><span class="s1">rate </span><span class="s2">else </span><span class="s3">'?'</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">eta_dt = (datetime.now() + timedelta(seconds=remaining)</span>
+                      <span class="s2">if </span><span class="s1">rate </span><span class="s2">and </span><span class="s1">total </span><span class="s2">else </span><span class="s1">datetime.utcfromtimestamp(</span><span class="s5">0</span><span class="s1">))</span>
+        <span class="s2">except </span><span class="s1">OverflowError:</span>
+            <span class="s1">eta_dt = datetime.max</span>
+
+        <span class="s4"># format the stats displayed to the left and right sides of the bar</span>
+        <span class="s2">if </span><span class="s1">prefix:</span>
+            <span class="s4"># old prefix setup work around</span>
+            <span class="s1">bool_prefix_colon_already = (prefix[-</span><span class="s5">2</span><span class="s1">:] == </span><span class="s3">&quot;: &quot;</span><span class="s1">)</span>
+            <span class="s1">l_bar = prefix </span><span class="s2">if </span><span class="s1">bool_prefix_colon_already </span><span class="s2">else </span><span class="s1">prefix + </span><span class="s3">&quot;: &quot;</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">l_bar = </span><span class="s3">''</span>
+
+        <span class="s1">r_bar = </span><span class="s3">f'| </span><span class="s2">{</span><span class="s1">n_fmt</span><span class="s2">}</span><span class="s3">/</span><span class="s2">{</span><span class="s1">total_fmt</span><span class="s2">} </span><span class="s3">[</span><span class="s2">{</span><span class="s1">elapsed_str</span><span class="s2">}</span><span class="s3">&lt;</span><span class="s2">{</span><span class="s1">remaining_str</span><span class="s2">}</span><span class="s3">, </span><span class="s2">{</span><span class="s1">rate_fmt</span><span class="s2">}{</span><span class="s1">postfix</span><span class="s2">}</span><span class="s3">]'</span>
+
+        <span class="s4"># Custom bar formatting</span>
+        <span class="s4"># Populate a dict with all available progress indicators</span>
+        <span class="s1">format_dict = {</span>
+            <span class="s4"># slight extension of self.format_dict</span>
+            <span class="s3">'n'</span><span class="s1">: n</span><span class="s2">, </span><span class="s3">'n_fmt'</span><span class="s1">: n_fmt</span><span class="s2">, </span><span class="s3">'total'</span><span class="s1">: total</span><span class="s2">, </span><span class="s3">'total_fmt'</span><span class="s1">: total_fmt</span><span class="s2">,</span>
+            <span class="s3">'elapsed'</span><span class="s1">: elapsed_str</span><span class="s2">, </span><span class="s3">'elapsed_s'</span><span class="s1">: elapsed</span><span class="s2">,</span>
+            <span class="s3">'ncols'</span><span class="s1">: ncols</span><span class="s2">, </span><span class="s3">'desc'</span><span class="s1">: prefix </span><span class="s2">or </span><span class="s3">''</span><span class="s2">, </span><span class="s3">'unit'</span><span class="s1">: unit</span><span class="s2">,</span>
+            <span class="s3">'rate'</span><span class="s1">: inv_rate </span><span class="s2">if </span><span class="s1">inv_rate </span><span class="s2">and </span><span class="s1">inv_rate &gt; </span><span class="s5">1 </span><span class="s2">else </span><span class="s1">rate</span><span class="s2">,</span>
+            <span class="s3">'rate_fmt'</span><span class="s1">: rate_fmt</span><span class="s2">, </span><span class="s3">'rate_noinv'</span><span class="s1">: rate</span><span class="s2">,</span>
+            <span class="s3">'rate_noinv_fmt'</span><span class="s1">: rate_noinv_fmt</span><span class="s2">, </span><span class="s3">'rate_inv'</span><span class="s1">: inv_rate</span><span class="s2">,</span>
+            <span class="s3">'rate_inv_fmt'</span><span class="s1">: rate_inv_fmt</span><span class="s2">,</span>
+            <span class="s3">'postfix'</span><span class="s1">: postfix</span><span class="s2">, </span><span class="s3">'unit_divisor'</span><span class="s1">: unit_divisor</span><span class="s2">,</span>
+            <span class="s3">'colour'</span><span class="s1">: colour</span><span class="s2">,</span>
+            <span class="s4"># plus more useful definitions</span>
+            <span class="s3">'remaining'</span><span class="s1">: remaining_str</span><span class="s2">, </span><span class="s3">'remaining_s'</span><span class="s1">: remaining</span><span class="s2">,</span>
+            <span class="s3">'l_bar'</span><span class="s1">: l_bar</span><span class="s2">, </span><span class="s3">'r_bar'</span><span class="s1">: r_bar</span><span class="s2">, </span><span class="s3">'eta'</span><span class="s1">: eta_dt</span><span class="s2">,</span>
+            <span class="s1">**extra_kwargs}</span>
+
+        <span class="s4"># total is known: we can predict some stats</span>
+        <span class="s2">if </span><span class="s1">total:</span>
+            <span class="s4"># fractional and percentage progress</span>
+            <span class="s1">frac = n / total</span>
+            <span class="s1">percentage = frac * </span><span class="s5">100</span>
+
+            <span class="s1">l_bar += </span><span class="s3">'{0:3.0f}%|'</span><span class="s1">.format(percentage)</span>
+
+            <span class="s2">if </span><span class="s1">ncols == </span><span class="s5">0</span><span class="s1">:</span>
+                <span class="s2">return </span><span class="s1">l_bar[:-</span><span class="s5">1</span><span class="s1">] + r_bar[</span><span class="s5">1</span><span class="s1">:]</span>
+
+            <span class="s1">format_dict.update(l_bar=l_bar)</span>
+            <span class="s2">if </span><span class="s1">bar_format:</span>
+                <span class="s1">format_dict.update(percentage=percentage)</span>
+
+                <span class="s4"># auto-remove colon for empty `{desc}`</span>
+                <span class="s2">if not </span><span class="s1">prefix:</span>
+                    <span class="s1">bar_format = bar_format.replace(</span><span class="s3">&quot;{desc}: &quot;</span><span class="s2">, </span><span class="s3">''</span><span class="s1">)</span>
+            <span class="s2">else</span><span class="s1">:</span>
+                <span class="s1">bar_format = </span><span class="s3">&quot;{l_bar}{bar}{r_bar}&quot;</span>
+
+            <span class="s1">full_bar = FormatReplace()</span>
+            <span class="s1">nobar = bar_format.format(bar=full_bar</span><span class="s2">, </span><span class="s1">**format_dict)</span>
+            <span class="s2">if not </span><span class="s1">full_bar.format_called:</span>
+                <span class="s2">return </span><span class="s1">nobar  </span><span class="s4"># no `{bar}`; nothing else to do</span>
+
+            <span class="s4"># Formatting progress bar space available for bar's display</span>
+            <span class="s1">full_bar = Bar(frac</span><span class="s2">,</span>
+                           <span class="s1">max(</span><span class="s5">1</span><span class="s2">, </span><span class="s1">ncols - disp_len(nobar)) </span><span class="s2">if </span><span class="s1">ncols </span><span class="s2">else </span><span class="s5">10</span><span class="s2">,</span>
+                           <span class="s1">charset=Bar.ASCII </span><span class="s2">if </span><span class="s1">ascii </span><span class="s2">is True else </span><span class="s1">ascii </span><span class="s2">or </span><span class="s1">Bar.UTF</span><span class="s2">,</span>
+                           <span class="s1">colour=colour)</span>
+            <span class="s2">if not </span><span class="s1">_is_ascii(full_bar.charset) </span><span class="s2">and </span><span class="s1">_is_ascii(bar_format):</span>
+                <span class="s1">bar_format = str(bar_format)</span>
+            <span class="s1">res = bar_format.format(bar=full_bar</span><span class="s2">, </span><span class="s1">**format_dict)</span>
+            <span class="s2">return </span><span class="s1">disp_trim(res</span><span class="s2">, </span><span class="s1">ncols) </span><span class="s2">if </span><span class="s1">ncols </span><span class="s2">else </span><span class="s1">res</span>
+
+        <span class="s2">elif </span><span class="s1">bar_format:</span>
+            <span class="s4"># user-specified bar_format but no total</span>
+            <span class="s1">l_bar += </span><span class="s3">'|'</span>
+            <span class="s1">format_dict.update(l_bar=l_bar</span><span class="s2">, </span><span class="s1">percentage=</span><span class="s5">0</span><span class="s1">)</span>
+            <span class="s1">full_bar = FormatReplace()</span>
+            <span class="s1">nobar = bar_format.format(bar=full_bar</span><span class="s2">, </span><span class="s1">**format_dict)</span>
+            <span class="s2">if not </span><span class="s1">full_bar.format_called:</span>
+                <span class="s2">return </span><span class="s1">nobar</span>
+            <span class="s1">full_bar = Bar(</span><span class="s5">0</span><span class="s2">,</span>
+                           <span class="s1">max(</span><span class="s5">1</span><span class="s2">, </span><span class="s1">ncols - disp_len(nobar)) </span><span class="s2">if </span><span class="s1">ncols </span><span class="s2">else </span><span class="s5">10</span><span class="s2">,</span>
+                           <span class="s1">charset=Bar.BLANK</span><span class="s2">, </span><span class="s1">colour=colour)</span>
+            <span class="s1">res = bar_format.format(bar=full_bar</span><span class="s2">, </span><span class="s1">**format_dict)</span>
+            <span class="s2">return </span><span class="s1">disp_trim(res</span><span class="s2">, </span><span class="s1">ncols) </span><span class="s2">if </span><span class="s1">ncols </span><span class="s2">else </span><span class="s1">res</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s4"># no total: no progressbar, ETA, just progress stats</span>
+            <span class="s2">return </span><span class="s1">(</span><span class="s3">f'</span><span class="s2">{</span><span class="s1">(prefix + </span><span class="s3">&quot;: &quot;</span><span class="s1">) </span><span class="s2">if </span><span class="s1">prefix </span><span class="s2">else </span><span class="s3">&quot;&quot;</span><span class="s2">}</span><span class="s3">'</span>
+                    <span class="s3">f'</span><span class="s2">{</span><span class="s1">n_fmt</span><span class="s2">}{</span><span class="s1">unit</span><span class="s2">} </span><span class="s3">[</span><span class="s2">{</span><span class="s1">elapsed_str</span><span class="s2">}</span><span class="s3">, </span><span class="s2">{</span><span class="s1">rate_fmt</span><span class="s2">}{</span><span class="s1">postfix</span><span class="s2">}</span><span class="s3">]'</span><span class="s1">)</span>
+
+    <span class="s2">def </span><span class="s1">__new__(cls</span><span class="s2">, </span><span class="s1">*_</span><span class="s2">, </span><span class="s1">**__):</span>
+        <span class="s1">instance = object.__new__(cls)</span>
+        <span class="s2">with </span><span class="s1">cls.get_lock():  </span><span class="s4"># also constructs lock if non-existent</span>
+            <span class="s1">cls._instances.add(instance)</span>
+            <span class="s4"># create monitoring thread</span>
+            <span class="s2">if </span><span class="s1">cls.monitor_interval </span><span class="s2">and </span><span class="s1">(cls.monitor </span><span class="s2">is None</span>
+                                         <span class="s2">or not </span><span class="s1">cls.monitor.report()):</span>
+                <span class="s2">try</span><span class="s1">:</span>
+                    <span class="s1">cls.monitor = TMonitor(cls</span><span class="s2">, </span><span class="s1">cls.monitor_interval)</span>
+                <span class="s2">except </span><span class="s1">Exception </span><span class="s2">as </span><span class="s1">e:  </span><span class="s4"># pragma: nocover</span>
+                    <span class="s1">warn(</span><span class="s3">&quot;tqdm:disabling monitor support&quot;</span>
+                         <span class="s3">&quot; (monitor_interval = 0) due to:</span><span class="s2">\n</span><span class="s3">&quot; </span><span class="s1">+ str(e)</span><span class="s2">,</span>
+                         <span class="s1">TqdmMonitorWarning</span><span class="s2">, </span><span class="s1">stacklevel=</span><span class="s5">2</span><span class="s1">)</span>
+                    <span class="s1">cls.monitor_interval = </span><span class="s5">0</span>
+        <span class="s2">return </span><span class="s1">instance</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s2">def </span><span class="s1">_get_free_pos(cls</span><span class="s2">, </span><span class="s1">instance=</span><span class="s2">None</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot;Skips specified instance.&quot;&quot;&quot;</span>
+        <span class="s1">positions = {abs(inst.pos) </span><span class="s2">for </span><span class="s1">inst </span><span class="s2">in </span><span class="s1">cls._instances</span>
+                     <span class="s2">if </span><span class="s1">inst </span><span class="s2">is not </span><span class="s1">instance </span><span class="s2">and </span><span class="s1">hasattr(inst</span><span class="s2">, </span><span class="s3">&quot;pos&quot;</span><span class="s1">)}</span>
+        <span class="s2">return </span><span class="s1">min(set(range(len(positions) + </span><span class="s5">1</span><span class="s1">)).difference(positions))</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s2">def </span><span class="s1">_decr_instances(cls</span><span class="s2">, </span><span class="s1">instance):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Remove from list and reposition another unfixed bar 
+        to fill the new gap. 
+ 
+        This means that by default (where all nested bars are unfixed), 
+        order is not maintained but screen flicker/blank space is minimised. 
+        (tqdm&lt;=4.44.1 moved ALL subsequent unfixed bars up.) 
+        &quot;&quot;&quot;</span>
+        <span class="s2">with </span><span class="s1">cls._lock:</span>
+            <span class="s2">try</span><span class="s1">:</span>
+                <span class="s1">cls._instances.remove(instance)</span>
+            <span class="s2">except </span><span class="s1">KeyError:</span>
+                <span class="s4"># if not instance.gui:  # pragma: no cover</span>
+                <span class="s4">#     raise</span>
+                <span class="s2">pass  </span><span class="s4"># py2: maybe magically removed already</span>
+            <span class="s4"># else:</span>
+            <span class="s2">if not </span><span class="s1">instance.gui:</span>
+                <span class="s1">last = (instance.nrows </span><span class="s2">or </span><span class="s5">20</span><span class="s1">) - </span><span class="s5">1</span>
+                <span class="s4"># find unfixed (`pos &gt;= 0`) overflow (`pos &gt;= nrows - 1`)</span>
+                <span class="s1">instances = list(filter(</span>
+                    <span class="s2">lambda </span><span class="s1">i: hasattr(i</span><span class="s2">, </span><span class="s3">&quot;pos&quot;</span><span class="s1">) </span><span class="s2">and </span><span class="s1">last &lt;= i.pos</span><span class="s2">,</span>
+                    <span class="s1">cls._instances))</span>
+                <span class="s4"># set first found to current `pos`</span>
+                <span class="s2">if </span><span class="s1">instances:</span>
+                    <span class="s1">inst = min(instances</span><span class="s2">, </span><span class="s1">key=</span><span class="s2">lambda </span><span class="s1">i: i.pos)</span>
+                    <span class="s1">inst.clear(nolock=</span><span class="s2">True</span><span class="s1">)</span>
+                    <span class="s1">inst.pos = abs(instance.pos)</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s2">def </span><span class="s1">write(cls</span><span class="s2">, </span><span class="s1">s</span><span class="s2">, </span><span class="s1">file=</span><span class="s2">None, </span><span class="s1">end=</span><span class="s3">&quot;</span><span class="s2">\n</span><span class="s3">&quot;</span><span class="s2">, </span><span class="s1">nolock=</span><span class="s2">False</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot;Print a message via tqdm (without overlap with bars).&quot;&quot;&quot;</span>
+        <span class="s1">fp = file </span><span class="s2">if </span><span class="s1">file </span><span class="s2">is not None else </span><span class="s1">sys.stdout</span>
+        <span class="s2">with </span><span class="s1">cls.external_write_mode(file=file</span><span class="s2">, </span><span class="s1">nolock=nolock):</span>
+            <span class="s4"># Write the message</span>
+            <span class="s1">fp.write(s)</span>
+            <span class="s1">fp.write(end)</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s1">@contextmanager</span>
+    <span class="s2">def </span><span class="s1">external_write_mode(cls</span><span class="s2">, </span><span class="s1">file=</span><span class="s2">None, </span><span class="s1">nolock=</span><span class="s2">False</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Disable tqdm within context and refresh tqdm when exits. 
+        Useful when writing to standard output stream 
+        &quot;&quot;&quot;</span>
+        <span class="s1">fp = file </span><span class="s2">if </span><span class="s1">file </span><span class="s2">is not None else </span><span class="s1">sys.stdout</span>
+
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s2">if not </span><span class="s1">nolock:</span>
+                <span class="s1">cls.get_lock().acquire()</span>
+            <span class="s4"># Clear all bars</span>
+            <span class="s1">inst_cleared = []</span>
+            <span class="s2">for </span><span class="s1">inst </span><span class="s2">in </span><span class="s1">getattr(cls</span><span class="s2">, </span><span class="s3">'_instances'</span><span class="s2">, </span><span class="s1">[]):</span>
+                <span class="s4"># Clear instance if in the target output file</span>
+                <span class="s4"># or if write output + tqdm output are both either</span>
+                <span class="s4"># sys.stdout or sys.stderr (because both are mixed in terminal)</span>
+                <span class="s2">if </span><span class="s1">hasattr(inst</span><span class="s2">, </span><span class="s3">&quot;start_t&quot;</span><span class="s1">) </span><span class="s2">and </span><span class="s1">(inst.fp == fp </span><span class="s2">or </span><span class="s1">all(</span>
+                        <span class="s1">f </span><span class="s2">in </span><span class="s1">(sys.stdout</span><span class="s2">, </span><span class="s1">sys.stderr) </span><span class="s2">for </span><span class="s1">f </span><span class="s2">in </span><span class="s1">(fp</span><span class="s2">, </span><span class="s1">inst.fp))):</span>
+                    <span class="s1">inst.clear(nolock=</span><span class="s2">True</span><span class="s1">)</span>
+                    <span class="s1">inst_cleared.append(inst)</span>
+            <span class="s2">yield</span>
+            <span class="s4"># Force refresh display of bars we cleared</span>
+            <span class="s2">for </span><span class="s1">inst </span><span class="s2">in </span><span class="s1">inst_cleared:</span>
+                <span class="s1">inst.refresh(nolock=</span><span class="s2">True</span><span class="s1">)</span>
+        <span class="s2">finally</span><span class="s1">:</span>
+            <span class="s2">if not </span><span class="s1">nolock:</span>
+                <span class="s1">cls._lock.release()</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s2">def </span><span class="s1">set_lock(cls</span><span class="s2">, </span><span class="s1">lock):</span>
+        <span class="s0">&quot;&quot;&quot;Set the global lock.&quot;&quot;&quot;</span>
+        <span class="s1">cls._lock = lock</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s2">def </span><span class="s1">get_lock(cls):</span>
+        <span class="s0">&quot;&quot;&quot;Get the global lock. Construct it if it does not exist.&quot;&quot;&quot;</span>
+        <span class="s2">if not </span><span class="s1">hasattr(cls</span><span class="s2">, </span><span class="s3">'_lock'</span><span class="s1">):</span>
+            <span class="s1">cls._lock = TqdmDefaultWriteLock()</span>
+        <span class="s2">return </span><span class="s1">cls._lock</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s2">def </span><span class="s1">pandas(cls</span><span class="s2">, </span><span class="s1">**tqdm_kwargs):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Registers the current `tqdm` class with 
+            pandas.core. 
+            ( frame.DataFrame 
+            | series.Series 
+            | groupby.(generic.)DataFrameGroupBy 
+            | groupby.(generic.)SeriesGroupBy 
+            ).progress_apply 
+ 
+        A new instance will be created every time `progress_apply` is called, 
+        and each instance will automatically `close()` upon completion. 
+ 
+        Parameters 
+        ---------- 
+        tqdm_kwargs  : arguments for the tqdm instance 
+ 
+        Examples 
+        -------- 
+        &gt;&gt;&gt; import pandas as pd 
+        &gt;&gt;&gt; import numpy as np 
+        &gt;&gt;&gt; from tqdm import tqdm 
+        &gt;&gt;&gt; from tqdm.gui import tqdm as tqdm_gui 
+        &gt;&gt;&gt; 
+        &gt;&gt;&gt; df = pd.DataFrame(np.random.randint(0, 100, (100000, 6))) 
+        &gt;&gt;&gt; tqdm.pandas(ncols=50)  # can use tqdm_gui, optional kwargs, etc 
+        &gt;&gt;&gt; # Now you can use `progress_apply` instead of `apply` 
+        &gt;&gt;&gt; df.groupby(0).progress_apply(lambda x: x**2) 
+ 
+        References 
+        ---------- 
+        &lt;https://stackoverflow.com/questions/18603270/\ 
+        progress-indicator-during-pandas-operations-python&gt; 
+        &quot;&quot;&quot;</span>
+        <span class="s2">from </span><span class="s1">warnings </span><span class="s2">import </span><span class="s1">catch_warnings</span><span class="s2">, </span><span class="s1">simplefilter</span>
+
+        <span class="s2">from </span><span class="s1">pandas.core.frame </span><span class="s2">import </span><span class="s1">DataFrame</span>
+        <span class="s2">from </span><span class="s1">pandas.core.series </span><span class="s2">import </span><span class="s1">Series</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s2">with </span><span class="s1">catch_warnings():</span>
+                <span class="s1">simplefilter(</span><span class="s3">&quot;ignore&quot;</span><span class="s2">, </span><span class="s1">category=FutureWarning)</span>
+                <span class="s2">from </span><span class="s1">pandas </span><span class="s2">import </span><span class="s1">Panel</span>
+        <span class="s2">except </span><span class="s1">ImportError:  </span><span class="s4"># pandas&gt;=1.2.0</span>
+            <span class="s1">Panel = </span><span class="s2">None</span>
+        <span class="s1">Rolling</span><span class="s2">, </span><span class="s1">Expanding = </span><span class="s2">None, None</span>
+        <span class="s2">try</span><span class="s1">:  </span><span class="s4"># pandas&gt;=1.0.0</span>
+            <span class="s2">from </span><span class="s1">pandas.core.window.rolling </span><span class="s2">import </span><span class="s1">_Rolling_and_Expanding</span>
+        <span class="s2">except </span><span class="s1">ImportError:</span>
+            <span class="s2">try</span><span class="s1">:  </span><span class="s4"># pandas&gt;=0.18.0</span>
+                <span class="s2">from </span><span class="s1">pandas.core.window </span><span class="s2">import </span><span class="s1">_Rolling_and_Expanding</span>
+            <span class="s2">except </span><span class="s1">ImportError:  </span><span class="s4"># pandas&gt;=1.2.0</span>
+                <span class="s2">try</span><span class="s1">:  </span><span class="s4"># pandas&gt;=1.2.0</span>
+                    <span class="s2">from </span><span class="s1">pandas.core.window.expanding </span><span class="s2">import </span><span class="s1">Expanding</span>
+                    <span class="s2">from </span><span class="s1">pandas.core.window.rolling </span><span class="s2">import </span><span class="s1">Rolling</span>
+                    <span class="s1">_Rolling_and_Expanding = Rolling</span><span class="s2">, </span><span class="s1">Expanding</span>
+                <span class="s2">except </span><span class="s1">ImportError:  </span><span class="s4"># pragma: no cover</span>
+                    <span class="s1">_Rolling_and_Expanding = </span><span class="s2">None</span>
+        <span class="s2">try</span><span class="s1">:  </span><span class="s4"># pandas&gt;=0.25.0</span>
+            <span class="s2">from </span><span class="s1">pandas.core.groupby.generic </span><span class="s2">import </span><span class="s1">SeriesGroupBy  </span><span class="s4"># , NDFrameGroupBy</span>
+            <span class="s2">from </span><span class="s1">pandas.core.groupby.generic </span><span class="s2">import </span><span class="s1">DataFrameGroupBy</span>
+        <span class="s2">except </span><span class="s1">ImportError:  </span><span class="s4"># pragma: no cover</span>
+            <span class="s2">try</span><span class="s1">:  </span><span class="s4"># pandas&gt;=0.23.0</span>
+                <span class="s2">from </span><span class="s1">pandas.core.groupby.groupby </span><span class="s2">import </span><span class="s1">DataFrameGroupBy</span><span class="s2">, </span><span class="s1">SeriesGroupBy</span>
+            <span class="s2">except </span><span class="s1">ImportError:</span>
+                <span class="s2">from </span><span class="s1">pandas.core.groupby </span><span class="s2">import </span><span class="s1">DataFrameGroupBy</span><span class="s2">, </span><span class="s1">SeriesGroupBy</span>
+        <span class="s2">try</span><span class="s1">:  </span><span class="s4"># pandas&gt;=0.23.0</span>
+            <span class="s2">from </span><span class="s1">pandas.core.groupby.groupby </span><span class="s2">import </span><span class="s1">GroupBy</span>
+        <span class="s2">except </span><span class="s1">ImportError:  </span><span class="s4"># pragma: no cover</span>
+            <span class="s2">from </span><span class="s1">pandas.core.groupby </span><span class="s2">import </span><span class="s1">GroupBy</span>
+
+        <span class="s2">try</span><span class="s1">:  </span><span class="s4"># pandas&gt;=0.23.0</span>
+            <span class="s2">from </span><span class="s1">pandas.core.groupby.groupby </span><span class="s2">import </span><span class="s1">PanelGroupBy</span>
+        <span class="s2">except </span><span class="s1">ImportError:</span>
+            <span class="s2">try</span><span class="s1">:</span>
+                <span class="s2">from </span><span class="s1">pandas.core.groupby </span><span class="s2">import </span><span class="s1">PanelGroupBy</span>
+            <span class="s2">except </span><span class="s1">ImportError:  </span><span class="s4"># pandas&gt;=0.25.0</span>
+                <span class="s1">PanelGroupBy = </span><span class="s2">None</span>
+
+        <span class="s1">tqdm_kwargs = tqdm_kwargs.copy()</span>
+        <span class="s1">deprecated_t = [tqdm_kwargs.pop(</span><span class="s3">'deprecated_t'</span><span class="s2">, None</span><span class="s1">)]</span>
+
+        <span class="s2">def </span><span class="s1">inner_generator(df_function=</span><span class="s3">'apply'</span><span class="s1">):</span>
+            <span class="s2">def </span><span class="s1">inner(df</span><span class="s2">, </span><span class="s1">func</span><span class="s2">, </span><span class="s1">*args</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+                <span class="s0">&quot;&quot;&quot; 
+                Parameters 
+                ---------- 
+                df  : (DataFrame|Series)[GroupBy] 
+                    Data (may be grouped). 
+                func  : function 
+                    To be applied on the (grouped) data. 
+                **kwargs  : optional 
+                    Transmitted to `df.apply()`. 
+                &quot;&quot;&quot;</span>
+
+                <span class="s4"># Precompute total iterations</span>
+                <span class="s1">total = tqdm_kwargs.pop(</span><span class="s3">&quot;total&quot;</span><span class="s2">, </span><span class="s1">getattr(df</span><span class="s2">, </span><span class="s3">'ngroups'</span><span class="s2">, None</span><span class="s1">))</span>
+                <span class="s2">if </span><span class="s1">total </span><span class="s2">is None</span><span class="s1">:  </span><span class="s4"># not grouped</span>
+                    <span class="s2">if </span><span class="s1">df_function == </span><span class="s3">'applymap'</span><span class="s1">:</span>
+                        <span class="s1">total = df.size</span>
+                    <span class="s2">elif </span><span class="s1">isinstance(df</span><span class="s2">, </span><span class="s1">Series):</span>
+                        <span class="s1">total = len(df)</span>
+                    <span class="s2">elif </span><span class="s1">(_Rolling_and_Expanding </span><span class="s2">is None or</span>
+                          <span class="s2">not </span><span class="s1">isinstance(df</span><span class="s2">, </span><span class="s1">_Rolling_and_Expanding)):</span>
+                        <span class="s4"># DataFrame or Panel</span>
+                        <span class="s1">axis = kwargs.get(</span><span class="s3">'axis'</span><span class="s2">, </span><span class="s5">0</span><span class="s1">)</span>
+                        <span class="s2">if </span><span class="s1">axis == </span><span class="s3">'index'</span><span class="s1">:</span>
+                            <span class="s1">axis = </span><span class="s5">0</span>
+                        <span class="s2">elif </span><span class="s1">axis == </span><span class="s3">'columns'</span><span class="s1">:</span>
+                            <span class="s1">axis = </span><span class="s5">1</span>
+                        <span class="s4"># when axis=0, total is shape[axis1]</span>
+                        <span class="s1">total = df.size // df.shape[axis]</span>
+
+                <span class="s4"># Init bar</span>
+                <span class="s2">if </span><span class="s1">deprecated_t[</span><span class="s5">0</span><span class="s1">] </span><span class="s2">is not None</span><span class="s1">:</span>
+                    <span class="s1">t = deprecated_t[</span><span class="s5">0</span><span class="s1">]</span>
+                    <span class="s1">deprecated_t[</span><span class="s5">0</span><span class="s1">] = </span><span class="s2">None</span>
+                <span class="s2">else</span><span class="s1">:</span>
+                    <span class="s1">t = cls(total=total</span><span class="s2">, </span><span class="s1">**tqdm_kwargs)</span>
+
+                <span class="s2">if </span><span class="s1">len(args) &gt; </span><span class="s5">0</span><span class="s1">:</span>
+                    <span class="s4"># *args intentionally not supported (see #244, #299)</span>
+                    <span class="s1">TqdmDeprecationWarning(</span>
+                        <span class="s3">&quot;Except func, normal arguments are intentionally&quot; </span><span class="s1">+</span>
+                        <span class="s3">&quot; not supported by&quot; </span><span class="s1">+</span>
+                        <span class="s3">&quot; `(DataFrame|Series|GroupBy).progress_apply`.&quot; </span><span class="s1">+</span>
+                        <span class="s3">&quot; Use keyword arguments instead.&quot;</span><span class="s2">,</span>
+                        <span class="s1">fp_write=getattr(t.fp</span><span class="s2">, </span><span class="s3">'write'</span><span class="s2">, </span><span class="s1">sys.stderr.write))</span>
+
+                <span class="s2">try</span><span class="s1">:  </span><span class="s4"># pandas&gt;=1.3.0</span>
+                    <span class="s2">from </span><span class="s1">pandas.core.common </span><span class="s2">import </span><span class="s1">is_builtin_func</span>
+                <span class="s2">except </span><span class="s1">ImportError:</span>
+                    <span class="s1">is_builtin_func = df._is_builtin_func</span>
+                <span class="s2">try</span><span class="s1">:</span>
+                    <span class="s1">func = is_builtin_func(func)</span>
+                <span class="s2">except </span><span class="s1">TypeError:</span>
+                    <span class="s2">pass</span>
+
+                <span class="s4"># Define bar updating wrapper</span>
+                <span class="s2">def </span><span class="s1">wrapper(*args</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+                    <span class="s4"># update tbar correctly</span>
+                    <span class="s4"># it seems `pandas apply` calls `func` twice</span>
+                    <span class="s4"># on the first column/row to decide whether it can</span>
+                    <span class="s4"># take a fast or slow code path; so stop when t.total==t.n</span>
+                    <span class="s1">t.update(n=</span><span class="s5">1 </span><span class="s2">if not </span><span class="s1">t.total </span><span class="s2">or </span><span class="s1">t.n &lt; t.total </span><span class="s2">else </span><span class="s5">0</span><span class="s1">)</span>
+                    <span class="s2">return </span><span class="s1">func(*args</span><span class="s2">, </span><span class="s1">**kwargs)</span>
+
+                <span class="s4"># Apply the provided function (in **kwargs)</span>
+                <span class="s4"># on the df using our wrapper (which provides bar updating)</span>
+                <span class="s2">try</span><span class="s1">:</span>
+                    <span class="s2">return </span><span class="s1">getattr(df</span><span class="s2">, </span><span class="s1">df_function)(wrapper</span><span class="s2">, </span><span class="s1">**kwargs)</span>
+                <span class="s2">finally</span><span class="s1">:</span>
+                    <span class="s1">t.close()</span>
+
+            <span class="s2">return </span><span class="s1">inner</span>
+
+        <span class="s4"># Monkeypatch pandas to provide easy methods</span>
+        <span class="s4"># Enable custom tqdm progress in pandas!</span>
+        <span class="s1">Series.progress_apply = inner_generator()</span>
+        <span class="s1">SeriesGroupBy.progress_apply = inner_generator()</span>
+        <span class="s1">Series.progress_map = inner_generator(</span><span class="s3">'map'</span><span class="s1">)</span>
+        <span class="s1">SeriesGroupBy.progress_map = inner_generator(</span><span class="s3">'map'</span><span class="s1">)</span>
+
+        <span class="s1">DataFrame.progress_apply = inner_generator()</span>
+        <span class="s1">DataFrameGroupBy.progress_apply = inner_generator()</span>
+        <span class="s1">DataFrame.progress_applymap = inner_generator(</span><span class="s3">'applymap'</span><span class="s1">)</span>
+
+        <span class="s2">if </span><span class="s1">Panel </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s1">Panel.progress_apply = inner_generator()</span>
+        <span class="s2">if </span><span class="s1">PanelGroupBy </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s1">PanelGroupBy.progress_apply = inner_generator()</span>
+
+        <span class="s1">GroupBy.progress_apply = inner_generator()</span>
+        <span class="s1">GroupBy.progress_aggregate = inner_generator(</span><span class="s3">'aggregate'</span><span class="s1">)</span>
+        <span class="s1">GroupBy.progress_transform = inner_generator(</span><span class="s3">'transform'</span><span class="s1">)</span>
+
+        <span class="s2">if </span><span class="s1">Rolling </span><span class="s2">is not None and </span><span class="s1">Expanding </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s1">Rolling.progress_apply = inner_generator()</span>
+            <span class="s1">Expanding.progress_apply = inner_generator()</span>
+        <span class="s2">elif </span><span class="s1">_Rolling_and_Expanding </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s1">_Rolling_and_Expanding.progress_apply = inner_generator()</span>
+
+    <span class="s2">def </span><span class="s1">__init__(self</span><span class="s2">, </span><span class="s1">iterable=</span><span class="s2">None, </span><span class="s1">desc=</span><span class="s2">None, </span><span class="s1">total=</span><span class="s2">None, </span><span class="s1">leave=</span><span class="s2">True, </span><span class="s1">file=</span><span class="s2">None,</span>
+                 <span class="s1">ncols=</span><span class="s2">None, </span><span class="s1">mininterval=</span><span class="s5">0.1</span><span class="s2">, </span><span class="s1">maxinterval=</span><span class="s5">10.0</span><span class="s2">, </span><span class="s1">miniters=</span><span class="s2">None,</span>
+                 <span class="s1">ascii=</span><span class="s2">None, </span><span class="s1">disable=</span><span class="s2">False, </span><span class="s1">unit=</span><span class="s3">'it'</span><span class="s2">, </span><span class="s1">unit_scale=</span><span class="s2">False,</span>
+                 <span class="s1">dynamic_ncols=</span><span class="s2">False, </span><span class="s1">smoothing=</span><span class="s5">0.3</span><span class="s2">, </span><span class="s1">bar_format=</span><span class="s2">None, </span><span class="s1">initial=</span><span class="s5">0</span><span class="s2">,</span>
+                 <span class="s1">position=</span><span class="s2">None, </span><span class="s1">postfix=</span><span class="s2">None, </span><span class="s1">unit_divisor=</span><span class="s5">1000</span><span class="s2">, </span><span class="s1">write_bytes=</span><span class="s2">False,</span>
+                 <span class="s1">lock_args=</span><span class="s2">None, </span><span class="s1">nrows=</span><span class="s2">None, </span><span class="s1">colour=</span><span class="s2">None, </span><span class="s1">delay=</span><span class="s5">0</span><span class="s2">, </span><span class="s1">gui=</span><span class="s2">False,</span>
+                 <span class="s1">**kwargs):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Parameters 
+        ---------- 
+        iterable  : iterable, optional 
+            Iterable to decorate with a progressbar. 
+            Leave blank to manually manage the updates. 
+        desc  : str, optional 
+            Prefix for the progressbar. 
+        total  : int or float, optional 
+            The number of expected iterations. If unspecified, 
+            len(iterable) is used if possible. If float(&quot;inf&quot;) or as a last 
+            resort, only basic progress statistics are displayed 
+            (no ETA, no progressbar). 
+            If `gui` is True and this parameter needs subsequent updating, 
+            specify an initial arbitrary large positive number, 
+            e.g. 9e9. 
+        leave  : bool, optional 
+            If [default: True], keeps all traces of the progressbar 
+            upon termination of iteration. 
+            If `None`, will leave only if `position` is `0`. 
+        file  : `io.TextIOWrapper` or `io.StringIO`, optional 
+            Specifies where to output the progress messages 
+            (default: sys.stderr). Uses `file.write(str)` and `file.flush()` 
+            methods.  For encoding, see `write_bytes`. 
+        ncols  : int, optional 
+            The width of the entire output message. If specified, 
+            dynamically resizes the progressbar to stay within this bound. 
+            If unspecified, attempts to use environment width. The 
+            fallback is a meter width of 10 and no limit for the counter and 
+            statistics. If 0, will not print any meter (only stats). 
+        mininterval  : float, optional 
+            Minimum progress display update interval [default: 0.1] seconds. 
+        maxinterval  : float, optional 
+            Maximum progress display update interval [default: 10] seconds. 
+            Automatically adjusts `miniters` to correspond to `mininterval` 
+            after long display update lag. Only works if `dynamic_miniters` 
+            or monitor thread is enabled. 
+        miniters  : int or float, optional 
+            Minimum progress display update interval, in iterations. 
+            If 0 and `dynamic_miniters`, will automatically adjust to equal 
+            `mininterval` (more CPU efficient, good for tight loops). 
+            If &gt; 0, will skip display of specified number of iterations. 
+            Tweak this and `mininterval` to get very efficient loops. 
+            If your progress is erratic with both fast and slow iterations 
+            (network, skipping items, etc) you should set miniters=1. 
+        ascii  : bool or str, optional 
+            If unspecified or False, use unicode (smooth blocks) to fill 
+            the meter. The fallback is to use ASCII characters &quot; 123456789#&quot;. 
+        disable  : bool, optional 
+            Whether to disable the entire progressbar wrapper 
+            [default: False]. If set to None, disable on non-TTY. 
+        unit  : str, optional 
+            String that will be used to define the unit of each iteration 
+            [default: it]. 
+        unit_scale  : bool or int or float, optional 
+            If 1 or True, the number of iterations will be reduced/scaled 
+            automatically and a metric prefix following the 
+            International System of Units standard will be added 
+            (kilo, mega, etc.) [default: False]. If any other non-zero 
+            number, will scale `total` and `n`. 
+        dynamic_ncols  : bool, optional 
+            If set, constantly alters `ncols` and `nrows` to the 
+            environment (allowing for window resizes) [default: False]. 
+        smoothing  : float, optional 
+            Exponential moving average smoothing factor for speed estimates 
+            (ignored in GUI mode). Ranges from 0 (average speed) to 1 
+            (current/instantaneous speed) [default: 0.3]. 
+        bar_format  : str, optional 
+            Specify a custom bar string formatting. May impact performance. 
+            [default: '{l_bar}{bar}{r_bar}'], where 
+            l_bar='{desc}: {percentage:3.0f}%|' and 
+            r_bar='| {n_fmt}/{total_fmt} [{elapsed}&lt;{remaining}, ' 
+              '{rate_fmt}{postfix}]' 
+            Possible vars: l_bar, bar, r_bar, n, n_fmt, total, total_fmt, 
+              percentage, elapsed, elapsed_s, ncols, nrows, desc, unit, 
+              rate, rate_fmt, rate_noinv, rate_noinv_fmt, 
+              rate_inv, rate_inv_fmt, postfix, unit_divisor, 
+              remaining, remaining_s, eta. 
+            Note that a trailing &quot;: &quot; is automatically removed after {desc} 
+            if the latter is empty. 
+        initial  : int or float, optional 
+            The initial counter value. Useful when restarting a progress 
+            bar [default: 0]. If using float, consider specifying `{n:.3f}` 
+            or similar in `bar_format`, or specifying `unit_scale`. 
+        position  : int, optional 
+            Specify the line offset to print this bar (starting from 0) 
+            Automatic if unspecified. 
+            Useful to manage multiple bars at once (eg, from threads). 
+        postfix  : dict or *, optional 
+            Specify additional stats to display at the end of the bar. 
+            Calls `set_postfix(**postfix)` if possible (dict). 
+        unit_divisor  : float, optional 
+            [default: 1000], ignored unless `unit_scale` is True. 
+        write_bytes  : bool, optional 
+            Whether to write bytes. If (default: False) will write unicode. 
+        lock_args  : tuple, optional 
+            Passed to `refresh` for intermediate output 
+            (initialisation, iterating, and updating). 
+        nrows  : int, optional 
+            The screen height. If specified, hides nested bars outside this 
+            bound. If unspecified, attempts to use environment height. 
+            The fallback is 20. 
+        colour  : str, optional 
+            Bar colour (e.g. 'green', '#00ff00'). 
+        delay  : float, optional 
+            Don't display until [default: 0] seconds have elapsed. 
+        gui  : bool, optional 
+            WARNING: internal parameter - do not use. 
+            Use tqdm.gui.tqdm(...) instead. If set, will attempt to use 
+            matplotlib animations for a graphical output [default: False]. 
+ 
+        Returns 
+        ------- 
+        out  : decorated iterator. 
+        &quot;&quot;&quot;</span>
+        <span class="s2">if </span><span class="s1">file </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s1">file = sys.stderr</span>
+
+        <span class="s2">if </span><span class="s1">write_bytes:</span>
+            <span class="s4"># Despite coercing unicode into bytes, py2 sys.std* streams</span>
+            <span class="s4"># should have bytes written to them.</span>
+            <span class="s1">file = SimpleTextIOWrapper(</span>
+                <span class="s1">file</span><span class="s2">, </span><span class="s1">encoding=getattr(file</span><span class="s2">, </span><span class="s3">'encoding'</span><span class="s2">, None</span><span class="s1">) </span><span class="s2">or </span><span class="s3">'utf-8'</span><span class="s1">)</span>
+
+        <span class="s1">file = DisableOnWriteError(file</span><span class="s2">, </span><span class="s1">tqdm_instance=self)</span>
+
+        <span class="s2">if </span><span class="s1">disable </span><span class="s2">is None and </span><span class="s1">hasattr(file</span><span class="s2">, </span><span class="s3">&quot;isatty&quot;</span><span class="s1">) </span><span class="s2">and not </span><span class="s1">file.isatty():</span>
+            <span class="s1">disable = </span><span class="s2">True</span>
+
+        <span class="s2">if </span><span class="s1">total </span><span class="s2">is None and </span><span class="s1">iterable </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s2">try</span><span class="s1">:</span>
+                <span class="s1">total = len(iterable)</span>
+            <span class="s2">except </span><span class="s1">(TypeError</span><span class="s2">, </span><span class="s1">AttributeError):</span>
+                <span class="s1">total = </span><span class="s2">None</span>
+        <span class="s2">if </span><span class="s1">total == float(</span><span class="s3">&quot;inf&quot;</span><span class="s1">):</span>
+            <span class="s4"># Infinite iterations, behave same as unknown</span>
+            <span class="s1">total = </span><span class="s2">None</span>
+
+        <span class="s2">if </span><span class="s1">disable:</span>
+            <span class="s1">self.iterable = iterable</span>
+            <span class="s1">self.disable = disable</span>
+            <span class="s2">with </span><span class="s1">self._lock:</span>
+                <span class="s1">self.pos = self._get_free_pos(self)</span>
+                <span class="s1">self._instances.remove(self)</span>
+            <span class="s1">self.n = initial</span>
+            <span class="s1">self.total = total</span>
+            <span class="s1">self.leave = leave</span>
+            <span class="s2">return</span>
+
+        <span class="s2">if </span><span class="s1">kwargs:</span>
+            <span class="s1">self.disable = </span><span class="s2">True</span>
+            <span class="s2">with </span><span class="s1">self._lock:</span>
+                <span class="s1">self.pos = self._get_free_pos(self)</span>
+                <span class="s1">self._instances.remove(self)</span>
+            <span class="s2">raise </span><span class="s1">(</span>
+                <span class="s1">TqdmDeprecationWarning(</span>
+                    <span class="s3">&quot;`nested` is deprecated and automated.</span><span class="s2">\n</span><span class="s3">&quot;</span>
+                    <span class="s3">&quot;Use `position` instead for manual control.</span><span class="s2">\n</span><span class="s3">&quot;</span><span class="s2">,</span>
+                    <span class="s1">fp_write=getattr(file</span><span class="s2">, </span><span class="s3">'write'</span><span class="s2">, </span><span class="s1">sys.stderr.write))</span>
+                <span class="s2">if </span><span class="s3">&quot;nested&quot; </span><span class="s2">in </span><span class="s1">kwargs </span><span class="s2">else</span>
+                <span class="s1">TqdmKeyError(</span><span class="s3">&quot;Unknown argument(s): &quot; </span><span class="s1">+ str(kwargs)))</span>
+
+        <span class="s4"># Preprocess the arguments</span>
+        <span class="s2">if </span><span class="s1">(</span>
+            <span class="s1">(ncols </span><span class="s2">is None or </span><span class="s1">nrows </span><span class="s2">is None</span><span class="s1">) </span><span class="s2">and </span><span class="s1">(file </span><span class="s2">in </span><span class="s1">(sys.stderr</span><span class="s2">, </span><span class="s1">sys.stdout))</span>
+        <span class="s1">) </span><span class="s2">or </span><span class="s1">dynamic_ncols:  </span><span class="s4"># pragma: no cover</span>
+            <span class="s2">if </span><span class="s1">dynamic_ncols:</span>
+                <span class="s1">dynamic_ncols = _screen_shape_wrapper()</span>
+                <span class="s2">if </span><span class="s1">dynamic_ncols:</span>
+                    <span class="s1">ncols</span><span class="s2">, </span><span class="s1">nrows = dynamic_ncols(file)</span>
+            <span class="s2">else</span><span class="s1">:</span>
+                <span class="s1">_dynamic_ncols = _screen_shape_wrapper()</span>
+                <span class="s2">if </span><span class="s1">_dynamic_ncols:</span>
+                    <span class="s1">_ncols</span><span class="s2">, </span><span class="s1">_nrows = _dynamic_ncols(file)</span>
+                    <span class="s2">if </span><span class="s1">ncols </span><span class="s2">is None</span><span class="s1">:</span>
+                        <span class="s1">ncols = _ncols</span>
+                    <span class="s2">if </span><span class="s1">nrows </span><span class="s2">is None</span><span class="s1">:</span>
+                        <span class="s1">nrows = _nrows</span>
+
+        <span class="s2">if </span><span class="s1">miniters </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s1">miniters = </span><span class="s5">0</span>
+            <span class="s1">dynamic_miniters = </span><span class="s2">True</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">dynamic_miniters = </span><span class="s2">False</span>
+
+        <span class="s2">if </span><span class="s1">mininterval </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s1">mininterval = </span><span class="s5">0</span>
+
+        <span class="s2">if </span><span class="s1">maxinterval </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s1">maxinterval = </span><span class="s5">0</span>
+
+        <span class="s2">if </span><span class="s1">ascii </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s1">ascii = </span><span class="s2">not </span><span class="s1">_supports_unicode(file)</span>
+
+        <span class="s2">if </span><span class="s1">bar_format </span><span class="s2">and </span><span class="s1">ascii </span><span class="s2">is not True and not </span><span class="s1">_is_ascii(ascii):</span>
+            <span class="s4"># Convert bar format into unicode since terminal uses unicode</span>
+            <span class="s1">bar_format = str(bar_format)</span>
+
+        <span class="s2">if </span><span class="s1">smoothing </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s1">smoothing = </span><span class="s5">0</span>
+
+        <span class="s4"># Store the arguments</span>
+        <span class="s1">self.iterable = iterable</span>
+        <span class="s1">self.desc = desc </span><span class="s2">or </span><span class="s3">''</span>
+        <span class="s1">self.total = total</span>
+        <span class="s1">self.leave = leave</span>
+        <span class="s1">self.fp = file</span>
+        <span class="s1">self.ncols = ncols</span>
+        <span class="s1">self.nrows = nrows</span>
+        <span class="s1">self.mininterval = mininterval</span>
+        <span class="s1">self.maxinterval = maxinterval</span>
+        <span class="s1">self.miniters = miniters</span>
+        <span class="s1">self.dynamic_miniters = dynamic_miniters</span>
+        <span class="s1">self.ascii = ascii</span>
+        <span class="s1">self.disable = disable</span>
+        <span class="s1">self.unit = unit</span>
+        <span class="s1">self.unit_scale = unit_scale</span>
+        <span class="s1">self.unit_divisor = unit_divisor</span>
+        <span class="s1">self.initial = initial</span>
+        <span class="s1">self.lock_args = lock_args</span>
+        <span class="s1">self.delay = delay</span>
+        <span class="s1">self.gui = gui</span>
+        <span class="s1">self.dynamic_ncols = dynamic_ncols</span>
+        <span class="s1">self.smoothing = smoothing</span>
+        <span class="s1">self._ema_dn = EMA(smoothing)</span>
+        <span class="s1">self._ema_dt = EMA(smoothing)</span>
+        <span class="s1">self._ema_miniters = EMA(smoothing)</span>
+        <span class="s1">self.bar_format = bar_format</span>
+        <span class="s1">self.postfix = </span><span class="s2">None</span>
+        <span class="s1">self.colour = colour</span>
+        <span class="s1">self._time = time</span>
+        <span class="s2">if </span><span class="s1">postfix:</span>
+            <span class="s2">try</span><span class="s1">:</span>
+                <span class="s1">self.set_postfix(refresh=</span><span class="s2">False, </span><span class="s1">**postfix)</span>
+            <span class="s2">except </span><span class="s1">TypeError:</span>
+                <span class="s1">self.postfix = postfix</span>
+
+        <span class="s4"># Init the iterations counters</span>
+        <span class="s1">self.last_print_n = initial</span>
+        <span class="s1">self.n = initial</span>
+
+        <span class="s4"># if nested, at initial sp() call we replace '\r' by '\n' to</span>
+        <span class="s4"># not overwrite the outer progress bar</span>
+        <span class="s2">with </span><span class="s1">self._lock:</span>
+            <span class="s4"># mark fixed positions as negative</span>
+            <span class="s1">self.pos = self._get_free_pos(self) </span><span class="s2">if </span><span class="s1">position </span><span class="s2">is None else </span><span class="s1">-position</span>
+
+        <span class="s2">if not </span><span class="s1">gui:</span>
+            <span class="s4"># Initialize the screen printer</span>
+            <span class="s1">self.sp = self.status_printer(self.fp)</span>
+            <span class="s2">if </span><span class="s1">delay &lt;= </span><span class="s5">0</span><span class="s1">:</span>
+                <span class="s1">self.refresh(lock_args=self.lock_args)</span>
+
+        <span class="s4"># Init the time counter</span>
+        <span class="s1">self.last_print_t = self._time()</span>
+        <span class="s4"># NB: Avoid race conditions by setting start_t at the very end of init</span>
+        <span class="s1">self.start_t = self.last_print_t</span>
+
+    <span class="s2">def </span><span class="s1">__bool__(self):</span>
+        <span class="s2">if </span><span class="s1">self.total </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s2">return </span><span class="s1">self.total &gt; </span><span class="s5">0</span>
+        <span class="s2">if </span><span class="s1">self.iterable </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s2">raise </span><span class="s1">TypeError(</span><span class="s3">'bool() undefined when iterable == total == None'</span><span class="s1">)</span>
+        <span class="s2">return </span><span class="s1">bool(self.iterable)</span>
+
+    <span class="s2">def </span><span class="s1">__len__(self):</span>
+        <span class="s2">return </span><span class="s1">(</span>
+            <span class="s1">self.total </span><span class="s2">if </span><span class="s1">self.iterable </span><span class="s2">is None</span>
+            <span class="s2">else </span><span class="s1">self.iterable.shape[</span><span class="s5">0</span><span class="s1">] </span><span class="s2">if </span><span class="s1">hasattr(self.iterable</span><span class="s2">, </span><span class="s3">&quot;shape&quot;</span><span class="s1">)</span>
+            <span class="s2">else </span><span class="s1">len(self.iterable) </span><span class="s2">if </span><span class="s1">hasattr(self.iterable</span><span class="s2">, </span><span class="s3">&quot;__len__&quot;</span><span class="s1">)</span>
+            <span class="s2">else </span><span class="s1">self.iterable.__length_hint__() </span><span class="s2">if </span><span class="s1">hasattr(self.iterable</span><span class="s2">, </span><span class="s3">&quot;__length_hint__&quot;</span><span class="s1">)</span>
+            <span class="s2">else </span><span class="s1">getattr(self</span><span class="s2">, </span><span class="s3">&quot;total&quot;</span><span class="s2">, None</span><span class="s1">))</span>
+
+    <span class="s2">def </span><span class="s1">__reversed__(self):</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">orig = self.iterable</span>
+        <span class="s2">except </span><span class="s1">AttributeError:</span>
+            <span class="s2">raise </span><span class="s1">TypeError(</span><span class="s3">&quot;'tqdm' object is not reversible&quot;</span><span class="s1">)</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">self.iterable = reversed(self.iterable)</span>
+            <span class="s2">return </span><span class="s1">self.__iter__()</span>
+        <span class="s2">finally</span><span class="s1">:</span>
+            <span class="s1">self.iterable = orig</span>
+
+    <span class="s2">def </span><span class="s1">__contains__(self</span><span class="s2">, </span><span class="s1">item):</span>
+        <span class="s1">contains = getattr(self.iterable</span><span class="s2">, </span><span class="s3">'__contains__'</span><span class="s2">, None</span><span class="s1">)</span>
+        <span class="s2">return </span><span class="s1">contains(item) </span><span class="s2">if </span><span class="s1">contains </span><span class="s2">is not None else </span><span class="s1">item </span><span class="s2">in </span><span class="s1">self.__iter__()</span>
+
+    <span class="s2">def </span><span class="s1">__enter__(self):</span>
+        <span class="s2">return </span><span class="s1">self</span>
+
+    <span class="s2">def </span><span class="s1">__exit__(self</span><span class="s2">, </span><span class="s1">exc_type</span><span class="s2">, </span><span class="s1">exc_value</span><span class="s2">, </span><span class="s1">traceback):</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">self.close()</span>
+        <span class="s2">except </span><span class="s1">AttributeError:</span>
+            <span class="s4"># maybe eager thread cleanup upon external error</span>
+            <span class="s2">if </span><span class="s1">(exc_type</span><span class="s2">, </span><span class="s1">exc_value</span><span class="s2">, </span><span class="s1">traceback) == (</span><span class="s2">None, None, None</span><span class="s1">):</span>
+                <span class="s2">raise</span>
+            <span class="s1">warn(</span><span class="s3">&quot;AttributeError ignored&quot;</span><span class="s2">, </span><span class="s1">TqdmWarning</span><span class="s2">, </span><span class="s1">stacklevel=</span><span class="s5">2</span><span class="s1">)</span>
+
+    <span class="s2">def </span><span class="s1">__del__(self):</span>
+        <span class="s1">self.close()</span>
+
+    <span class="s2">def </span><span class="s1">__str__(self):</span>
+        <span class="s2">return </span><span class="s1">self.format_meter(**self.format_dict)</span>
+
+    <span class="s1">@property</span>
+    <span class="s2">def </span><span class="s1">_comparable(self):</span>
+        <span class="s2">return </span><span class="s1">abs(getattr(self</span><span class="s2">, </span><span class="s3">&quot;pos&quot;</span><span class="s2">, </span><span class="s5">1 </span><span class="s1">&lt;&lt; </span><span class="s5">31</span><span class="s1">))</span>
+
+    <span class="s2">def </span><span class="s1">__hash__(self):</span>
+        <span class="s2">return </span><span class="s1">id(self)</span>
+
+    <span class="s2">def </span><span class="s1">__iter__(self):</span>
+        <span class="s0">&quot;&quot;&quot;Backward-compatibility to use: for x in tqdm(iterable)&quot;&quot;&quot;</span>
+
+        <span class="s4"># Inlining instance variables as locals (speed optimisation)</span>
+        <span class="s1">iterable = self.iterable</span>
+
+        <span class="s4"># If the bar is disabled, then just walk the iterable</span>
+        <span class="s4"># (note: keep this check outside the loop for performance)</span>
+        <span class="s2">if </span><span class="s1">self.disable:</span>
+            <span class="s2">for </span><span class="s1">obj </span><span class="s2">in </span><span class="s1">iterable:</span>
+                <span class="s2">yield </span><span class="s1">obj</span>
+            <span class="s2">return</span>
+
+        <span class="s1">mininterval = self.mininterval</span>
+        <span class="s1">last_print_t = self.last_print_t</span>
+        <span class="s1">last_print_n = self.last_print_n</span>
+        <span class="s1">min_start_t = self.start_t + self.delay</span>
+        <span class="s1">n = self.n</span>
+        <span class="s1">time = self._time</span>
+
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s2">for </span><span class="s1">obj </span><span class="s2">in </span><span class="s1">iterable:</span>
+                <span class="s2">yield </span><span class="s1">obj</span>
+                <span class="s4"># Update and possibly print the progressbar.</span>
+                <span class="s4"># Note: does not call self.update(1) for speed optimisation.</span>
+                <span class="s1">n += </span><span class="s5">1</span>
+
+                <span class="s2">if </span><span class="s1">n - last_print_n &gt;= self.miniters:</span>
+                    <span class="s1">cur_t = time()</span>
+                    <span class="s1">dt = cur_t - last_print_t</span>
+                    <span class="s2">if </span><span class="s1">dt &gt;= mininterval </span><span class="s2">and </span><span class="s1">cur_t &gt;= min_start_t:</span>
+                        <span class="s1">self.update(n - last_print_n)</span>
+                        <span class="s1">last_print_n = self.last_print_n</span>
+                        <span class="s1">last_print_t = self.last_print_t</span>
+        <span class="s2">finally</span><span class="s1">:</span>
+            <span class="s1">self.n = n</span>
+            <span class="s1">self.close()</span>
+
+    <span class="s2">def </span><span class="s1">update(self</span><span class="s2">, </span><span class="s1">n=</span><span class="s5">1</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Manually update the progress bar, useful for streams 
+        such as reading files. 
+        E.g.: 
+        &gt;&gt;&gt; t = tqdm(total=filesize) # Initialise 
+        &gt;&gt;&gt; for current_buffer in stream: 
+        ...    ... 
+        ...    t.update(len(current_buffer)) 
+        &gt;&gt;&gt; t.close() 
+        The last line is highly recommended, but possibly not necessary if 
+        `t.update()` will be called in such a way that `filesize` will be 
+        exactly reached and printed. 
+ 
+        Parameters 
+        ---------- 
+        n  : int or float, optional 
+            Increment to add to the internal counter of iterations 
+            [default: 1]. If using float, consider specifying `{n:.3f}` 
+            or similar in `bar_format`, or specifying `unit_scale`. 
+ 
+        Returns 
+        ------- 
+        out  : bool or None 
+            True if a `display()` was triggered. 
+        &quot;&quot;&quot;</span>
+        <span class="s2">if </span><span class="s1">self.disable:</span>
+            <span class="s2">return</span>
+
+        <span class="s2">if </span><span class="s1">n &lt; </span><span class="s5">0</span><span class="s1">:</span>
+            <span class="s1">self.last_print_n += n  </span><span class="s4"># for auto-refresh logic to work</span>
+        <span class="s1">self.n += n</span>
+
+        <span class="s4"># check counter first to reduce calls to time()</span>
+        <span class="s2">if </span><span class="s1">self.n - self.last_print_n &gt;= self.miniters:</span>
+            <span class="s1">cur_t = self._time()</span>
+            <span class="s1">dt = cur_t - self.last_print_t</span>
+            <span class="s2">if </span><span class="s1">dt &gt;= self.mininterval </span><span class="s2">and </span><span class="s1">cur_t &gt;= self.start_t + self.delay:</span>
+                <span class="s1">cur_t = self._time()</span>
+                <span class="s1">dn = self.n - self.last_print_n  </span><span class="s4"># &gt;= n</span>
+                <span class="s2">if </span><span class="s1">self.smoothing </span><span class="s2">and </span><span class="s1">dt </span><span class="s2">and </span><span class="s1">dn:</span>
+                    <span class="s4"># EMA (not just overall average)</span>
+                    <span class="s1">self._ema_dn(dn)</span>
+                    <span class="s1">self._ema_dt(dt)</span>
+                <span class="s1">self.refresh(lock_args=self.lock_args)</span>
+                <span class="s2">if </span><span class="s1">self.dynamic_miniters:</span>
+                    <span class="s4"># If no `miniters` was specified, adjust automatically to the</span>
+                    <span class="s4"># maximum iteration rate seen so far between two prints.</span>
+                    <span class="s4"># e.g.: After running `tqdm.update(5)`, subsequent</span>
+                    <span class="s4"># calls to `tqdm.update()` will only cause an update after</span>
+                    <span class="s4"># at least 5 more iterations.</span>
+                    <span class="s2">if </span><span class="s1">self.maxinterval </span><span class="s2">and </span><span class="s1">dt &gt;= self.maxinterval:</span>
+                        <span class="s1">self.miniters = dn * (self.mininterval </span><span class="s2">or </span><span class="s1">self.maxinterval) / dt</span>
+                    <span class="s2">elif </span><span class="s1">self.smoothing:</span>
+                        <span class="s4"># EMA miniters update</span>
+                        <span class="s1">self.miniters = self._ema_miniters(</span>
+                            <span class="s1">dn * (self.mininterval / dt </span><span class="s2">if </span><span class="s1">self.mininterval </span><span class="s2">and </span><span class="s1">dt</span>
+                                  <span class="s2">else </span><span class="s5">1</span><span class="s1">))</span>
+                    <span class="s2">else</span><span class="s1">:</span>
+                        <span class="s4"># max iters between two prints</span>
+                        <span class="s1">self.miniters = max(self.miniters</span><span class="s2">, </span><span class="s1">dn)</span>
+
+                <span class="s4"># Store old values for next call</span>
+                <span class="s1">self.last_print_n = self.n</span>
+                <span class="s1">self.last_print_t = cur_t</span>
+                <span class="s2">return True</span>
+
+    <span class="s2">def </span><span class="s1">close(self):</span>
+        <span class="s0">&quot;&quot;&quot;Cleanup and (if leave=False) close the progressbar.&quot;&quot;&quot;</span>
+        <span class="s2">if </span><span class="s1">self.disable:</span>
+            <span class="s2">return</span>
+
+        <span class="s4"># Prevent multiple closures</span>
+        <span class="s1">self.disable = </span><span class="s2">True</span>
+
+        <span class="s4"># decrement instance pos and remove from internal set</span>
+        <span class="s1">pos = abs(self.pos)</span>
+        <span class="s1">self._decr_instances(self)</span>
+
+        <span class="s2">if </span><span class="s1">self.last_print_t &lt; self.start_t + self.delay:</span>
+            <span class="s4"># haven't ever displayed; nothing to clear</span>
+            <span class="s2">return</span>
+
+        <span class="s4"># GUI mode</span>
+        <span class="s2">if </span><span class="s1">getattr(self</span><span class="s2">, </span><span class="s3">'sp'</span><span class="s2">, None</span><span class="s1">) </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s2">return</span>
+
+        <span class="s4"># annoyingly, _supports_unicode isn't good enough</span>
+        <span class="s2">def </span><span class="s1">fp_write(s):</span>
+            <span class="s1">self.fp.write(str(s))</span>
+
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">fp_write(</span><span class="s3">''</span><span class="s1">)</span>
+        <span class="s2">except </span><span class="s1">ValueError </span><span class="s2">as </span><span class="s1">e:</span>
+            <span class="s2">if </span><span class="s3">'closed' </span><span class="s2">in </span><span class="s1">str(e):</span>
+                <span class="s2">return</span>
+            <span class="s2">raise  </span><span class="s4"># pragma: no cover</span>
+
+        <span class="s1">leave = pos == </span><span class="s5">0 </span><span class="s2">if </span><span class="s1">self.leave </span><span class="s2">is None else </span><span class="s1">self.leave</span>
+
+        <span class="s2">with </span><span class="s1">self._lock:</span>
+            <span class="s2">if </span><span class="s1">leave:</span>
+                <span class="s4"># stats for overall rate (no weighted average)</span>
+                <span class="s1">self._ema_dt = </span><span class="s2">lambda</span><span class="s1">: </span><span class="s2">None</span>
+                <span class="s1">self.display(pos=</span><span class="s5">0</span><span class="s1">)</span>
+                <span class="s1">fp_write(</span><span class="s3">'</span><span class="s2">\n</span><span class="s3">'</span><span class="s1">)</span>
+            <span class="s2">else</span><span class="s1">:</span>
+                <span class="s4"># clear previous display</span>
+                <span class="s2">if </span><span class="s1">self.display(msg=</span><span class="s3">''</span><span class="s2">, </span><span class="s1">pos=pos) </span><span class="s2">and not </span><span class="s1">pos:</span>
+                    <span class="s1">fp_write(</span><span class="s3">'</span><span class="s2">\r</span><span class="s3">'</span><span class="s1">)</span>
+
+    <span class="s2">def </span><span class="s1">clear(self</span><span class="s2">, </span><span class="s1">nolock=</span><span class="s2">False</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot;Clear current bar display.&quot;&quot;&quot;</span>
+        <span class="s2">if </span><span class="s1">self.disable:</span>
+            <span class="s2">return</span>
+
+        <span class="s2">if not </span><span class="s1">nolock:</span>
+            <span class="s1">self._lock.acquire()</span>
+        <span class="s1">pos = abs(self.pos)</span>
+        <span class="s2">if </span><span class="s1">pos &lt; (self.nrows </span><span class="s2">or </span><span class="s5">20</span><span class="s1">):</span>
+            <span class="s1">self.moveto(pos)</span>
+            <span class="s1">self.sp(</span><span class="s3">''</span><span class="s1">)</span>
+            <span class="s1">self.fp.write(</span><span class="s3">'</span><span class="s2">\r</span><span class="s3">'</span><span class="s1">)  </span><span class="s4"># place cursor back at the beginning of line</span>
+            <span class="s1">self.moveto(-pos)</span>
+        <span class="s2">if not </span><span class="s1">nolock:</span>
+            <span class="s1">self._lock.release()</span>
+
+    <span class="s2">def </span><span class="s1">refresh(self</span><span class="s2">, </span><span class="s1">nolock=</span><span class="s2">False, </span><span class="s1">lock_args=</span><span class="s2">None</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Force refresh the display of this bar. 
+ 
+        Parameters 
+        ---------- 
+        nolock  : bool, optional 
+            If `True`, does not lock. 
+            If [default: `False`]: calls `acquire()` on internal lock. 
+        lock_args  : tuple, optional 
+            Passed to internal lock's `acquire()`. 
+            If specified, will only `display()` if `acquire()` returns `True`. 
+        &quot;&quot;&quot;</span>
+        <span class="s2">if </span><span class="s1">self.disable:</span>
+            <span class="s2">return</span>
+
+        <span class="s2">if not </span><span class="s1">nolock:</span>
+            <span class="s2">if </span><span class="s1">lock_args:</span>
+                <span class="s2">if not </span><span class="s1">self._lock.acquire(*lock_args):</span>
+                    <span class="s2">return False</span>
+            <span class="s2">else</span><span class="s1">:</span>
+                <span class="s1">self._lock.acquire()</span>
+        <span class="s1">self.display()</span>
+        <span class="s2">if not </span><span class="s1">nolock:</span>
+            <span class="s1">self._lock.release()</span>
+        <span class="s2">return True</span>
+
+    <span class="s2">def </span><span class="s1">unpause(self):</span>
+        <span class="s0">&quot;&quot;&quot;Restart tqdm timer from last print time.&quot;&quot;&quot;</span>
+        <span class="s2">if </span><span class="s1">self.disable:</span>
+            <span class="s2">return</span>
+        <span class="s1">cur_t = self._time()</span>
+        <span class="s1">self.start_t += cur_t - self.last_print_t</span>
+        <span class="s1">self.last_print_t = cur_t</span>
+
+    <span class="s2">def </span><span class="s1">reset(self</span><span class="s2">, </span><span class="s1">total=</span><span class="s2">None</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Resets to 0 iterations for repeated use. 
+ 
+        Consider combining with `leave=True`. 
+ 
+        Parameters 
+        ---------- 
+        total  : int or float, optional. Total to use for the new bar. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">self.n = </span><span class="s5">0</span>
+        <span class="s2">if </span><span class="s1">total </span><span class="s2">is not None</span><span class="s1">:</span>
+            <span class="s1">self.total = total</span>
+        <span class="s2">if </span><span class="s1">self.disable:</span>
+            <span class="s2">return</span>
+        <span class="s1">self.last_print_n = </span><span class="s5">0</span>
+        <span class="s1">self.last_print_t = self.start_t = self._time()</span>
+        <span class="s1">self._ema_dn = EMA(self.smoothing)</span>
+        <span class="s1">self._ema_dt = EMA(self.smoothing)</span>
+        <span class="s1">self._ema_miniters = EMA(self.smoothing)</span>
+        <span class="s1">self.refresh()</span>
+
+    <span class="s2">def </span><span class="s1">set_description(self</span><span class="s2">, </span><span class="s1">desc=</span><span class="s2">None, </span><span class="s1">refresh=</span><span class="s2">True</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Set/modify description of the progress bar. 
+ 
+        Parameters 
+        ---------- 
+        desc  : str, optional 
+        refresh  : bool, optional 
+            Forces refresh [default: True]. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">self.desc = desc + </span><span class="s3">': ' </span><span class="s2">if </span><span class="s1">desc </span><span class="s2">else </span><span class="s3">''</span>
+        <span class="s2">if </span><span class="s1">refresh:</span>
+            <span class="s1">self.refresh()</span>
+
+    <span class="s2">def </span><span class="s1">set_description_str(self</span><span class="s2">, </span><span class="s1">desc=</span><span class="s2">None, </span><span class="s1">refresh=</span><span class="s2">True</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot;Set/modify description without ': ' appended.&quot;&quot;&quot;</span>
+        <span class="s1">self.desc = desc </span><span class="s2">or </span><span class="s3">''</span>
+        <span class="s2">if </span><span class="s1">refresh:</span>
+            <span class="s1">self.refresh()</span>
+
+    <span class="s2">def </span><span class="s1">set_postfix(self</span><span class="s2">, </span><span class="s1">ordered_dict=</span><span class="s2">None, </span><span class="s1">refresh=</span><span class="s2">True, </span><span class="s1">**kwargs):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Set/modify postfix (additional stats) 
+        with automatic formatting based on datatype. 
+ 
+        Parameters 
+        ---------- 
+        ordered_dict  : dict or OrderedDict, optional 
+        refresh  : bool, optional 
+            Forces refresh [default: True]. 
+        kwargs  : dict, optional 
+        &quot;&quot;&quot;</span>
+        <span class="s4"># Sort in alphabetical order to be more deterministic</span>
+        <span class="s1">postfix = OrderedDict([] </span><span class="s2">if </span><span class="s1">ordered_dict </span><span class="s2">is None else </span><span class="s1">ordered_dict)</span>
+        <span class="s2">for </span><span class="s1">key </span><span class="s2">in </span><span class="s1">sorted(kwargs.keys()):</span>
+            <span class="s1">postfix[key] = kwargs[key]</span>
+        <span class="s4"># Preprocess stats according to datatype</span>
+        <span class="s2">for </span><span class="s1">key </span><span class="s2">in </span><span class="s1">postfix.keys():</span>
+            <span class="s4"># Number: limit the length of the string</span>
+            <span class="s2">if </span><span class="s1">isinstance(postfix[key]</span><span class="s2">, </span><span class="s1">Number):</span>
+                <span class="s1">postfix[key] = self.format_num(postfix[key])</span>
+            <span class="s4"># Else for any other type, try to get the string conversion</span>
+            <span class="s2">elif not </span><span class="s1">isinstance(postfix[key]</span><span class="s2">, </span><span class="s1">str):</span>
+                <span class="s1">postfix[key] = str(postfix[key])</span>
+            <span class="s4"># Else if it's a string, don't need to preprocess anything</span>
+        <span class="s4"># Stitch together to get the final postfix</span>
+        <span class="s1">self.postfix = </span><span class="s3">', '</span><span class="s1">.join(key + </span><span class="s3">'=' </span><span class="s1">+ postfix[key].strip()</span>
+                                 <span class="s2">for </span><span class="s1">key </span><span class="s2">in </span><span class="s1">postfix.keys())</span>
+        <span class="s2">if </span><span class="s1">refresh:</span>
+            <span class="s1">self.refresh()</span>
+
+    <span class="s2">def </span><span class="s1">set_postfix_str(self</span><span class="s2">, </span><span class="s1">s=</span><span class="s3">''</span><span class="s2">, </span><span class="s1">refresh=</span><span class="s2">True</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Postfix without dictionary expansion, similar to prefix handling. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">self.postfix = str(s)</span>
+        <span class="s2">if </span><span class="s1">refresh:</span>
+            <span class="s1">self.refresh()</span>
+
+    <span class="s2">def </span><span class="s1">moveto(self</span><span class="s2">, </span><span class="s1">n):</span>
+        <span class="s4"># TODO: private method</span>
+        <span class="s1">self.fp.write(</span><span class="s3">'</span><span class="s2">\n</span><span class="s3">' </span><span class="s1">* n + _term_move_up() * -n)</span>
+        <span class="s1">getattr(self.fp</span><span class="s2">, </span><span class="s3">'flush'</span><span class="s2">, lambda</span><span class="s1">: </span><span class="s2">None</span><span class="s1">)()</span>
+
+    <span class="s1">@property</span>
+    <span class="s2">def </span><span class="s1">format_dict(self):</span>
+        <span class="s0">&quot;&quot;&quot;Public API for read-only member access.&quot;&quot;&quot;</span>
+        <span class="s2">if </span><span class="s1">self.disable </span><span class="s2">and not </span><span class="s1">hasattr(self</span><span class="s2">, </span><span class="s3">'unit'</span><span class="s1">):</span>
+            <span class="s2">return </span><span class="s1">defaultdict(</span><span class="s2">lambda</span><span class="s1">: </span><span class="s2">None, </span><span class="s1">{</span>
+                <span class="s3">'n'</span><span class="s1">: self.n</span><span class="s2">, </span><span class="s3">'total'</span><span class="s1">: self.total</span><span class="s2">, </span><span class="s3">'elapsed'</span><span class="s1">: </span><span class="s5">0</span><span class="s2">, </span><span class="s3">'unit'</span><span class="s1">: </span><span class="s3">'it'</span><span class="s1">})</span>
+        <span class="s2">if </span><span class="s1">self.dynamic_ncols:</span>
+            <span class="s1">self.ncols</span><span class="s2">, </span><span class="s1">self.nrows = self.dynamic_ncols(self.fp)</span>
+        <span class="s2">return </span><span class="s1">{</span>
+            <span class="s3">'n'</span><span class="s1">: self.n</span><span class="s2">, </span><span class="s3">'total'</span><span class="s1">: self.total</span><span class="s2">,</span>
+            <span class="s3">'elapsed'</span><span class="s1">: self._time() - self.start_t </span><span class="s2">if </span><span class="s1">hasattr(self</span><span class="s2">, </span><span class="s3">'start_t'</span><span class="s1">) </span><span class="s2">else </span><span class="s5">0</span><span class="s2">,</span>
+            <span class="s3">'ncols'</span><span class="s1">: self.ncols</span><span class="s2">, </span><span class="s3">'nrows'</span><span class="s1">: self.nrows</span><span class="s2">, </span><span class="s3">'prefix'</span><span class="s1">: self.desc</span><span class="s2">,</span>
+            <span class="s3">'ascii'</span><span class="s1">: self.ascii</span><span class="s2">, </span><span class="s3">'unit'</span><span class="s1">: self.unit</span><span class="s2">, </span><span class="s3">'unit_scale'</span><span class="s1">: self.unit_scale</span><span class="s2">,</span>
+            <span class="s3">'rate'</span><span class="s1">: self._ema_dn() / self._ema_dt() </span><span class="s2">if </span><span class="s1">self._ema_dt() </span><span class="s2">else None,</span>
+            <span class="s3">'bar_format'</span><span class="s1">: self.bar_format</span><span class="s2">, </span><span class="s3">'postfix'</span><span class="s1">: self.postfix</span><span class="s2">,</span>
+            <span class="s3">'unit_divisor'</span><span class="s1">: self.unit_divisor</span><span class="s2">, </span><span class="s3">'initial'</span><span class="s1">: self.initial</span><span class="s2">,</span>
+            <span class="s3">'colour'</span><span class="s1">: self.colour}</span>
+
+    <span class="s2">def </span><span class="s1">display(self</span><span class="s2">, </span><span class="s1">msg=</span><span class="s2">None, </span><span class="s1">pos=</span><span class="s2">None</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Use `self.sp` to display `msg` in the specified `pos`. 
+ 
+        Consider overloading this function when inheriting to use e.g.: 
+        `self.some_frontend(**self.format_dict)` instead of `self.sp`. 
+ 
+        Parameters 
+        ---------- 
+        msg  : str, optional. What to display (default: `repr(self)`). 
+        pos  : int, optional. Position to `moveto` 
+          (default: `abs(self.pos)`). 
+        &quot;&quot;&quot;</span>
+        <span class="s2">if </span><span class="s1">pos </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s1">pos = abs(self.pos)</span>
+
+        <span class="s1">nrows = self.nrows </span><span class="s2">or </span><span class="s5">20</span>
+        <span class="s2">if </span><span class="s1">pos &gt;= nrows - </span><span class="s5">1</span><span class="s1">:</span>
+            <span class="s2">if </span><span class="s1">pos &gt;= nrows:</span>
+                <span class="s2">return False</span>
+            <span class="s2">if </span><span class="s1">msg </span><span class="s2">or </span><span class="s1">msg </span><span class="s2">is None</span><span class="s1">:  </span><span class="s4"># override at `nrows - 1`</span>
+                <span class="s1">msg = </span><span class="s3">&quot; ... (more hidden) ...&quot;</span>
+
+        <span class="s2">if not </span><span class="s1">hasattr(self</span><span class="s2">, </span><span class="s3">&quot;sp&quot;</span><span class="s1">):</span>
+            <span class="s2">raise </span><span class="s1">TqdmDeprecationWarning(</span>
+                <span class="s3">&quot;Please use `tqdm.gui.tqdm(...)`&quot;</span>
+                <span class="s3">&quot; instead of `tqdm(..., gui=True)`</span><span class="s2">\n</span><span class="s3">&quot;</span><span class="s2">,</span>
+                <span class="s1">fp_write=getattr(self.fp</span><span class="s2">, </span><span class="s3">'write'</span><span class="s2">, </span><span class="s1">sys.stderr.write))</span>
+
+        <span class="s2">if </span><span class="s1">pos:</span>
+            <span class="s1">self.moveto(pos)</span>
+        <span class="s1">self.sp(self.__str__() </span><span class="s2">if </span><span class="s1">msg </span><span class="s2">is None else </span><span class="s1">msg)</span>
+        <span class="s2">if </span><span class="s1">pos:</span>
+            <span class="s1">self.moveto(-pos)</span>
+        <span class="s2">return True</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s1">@contextmanager</span>
+    <span class="s2">def </span><span class="s1">wrapattr(cls</span><span class="s2">, </span><span class="s1">stream</span><span class="s2">, </span><span class="s1">method</span><span class="s2">, </span><span class="s1">total=</span><span class="s2">None, </span><span class="s1">bytes=</span><span class="s2">True, </span><span class="s1">**tqdm_kwargs):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        stream  : file-like object. 
+        method  : str, &quot;read&quot; or &quot;write&quot;. The result of `read()` and 
+            the first argument of `write()` should have a `len()`. 
+ 
+        &gt;&gt;&gt; with tqdm.wrapattr(file_obj, &quot;read&quot;, total=file_obj.size) as fobj: 
+        ...     while True: 
+        ...         chunk = fobj.read(chunk_size) 
+        ...         if not chunk: 
+        ...             break 
+        &quot;&quot;&quot;</span>
+        <span class="s2">with </span><span class="s1">cls(total=total</span><span class="s2">, </span><span class="s1">**tqdm_kwargs) </span><span class="s2">as </span><span class="s1">t:</span>
+            <span class="s2">if </span><span class="s1">bytes:</span>
+                <span class="s1">t.unit = </span><span class="s3">&quot;B&quot;</span>
+                <span class="s1">t.unit_scale = </span><span class="s2">True</span>
+                <span class="s1">t.unit_divisor = </span><span class="s5">1024</span>
+            <span class="s2">yield </span><span class="s1">CallbackIOWrapper(t.update</span><span class="s2">, </span><span class="s1">stream</span><span class="s2">, </span><span class="s1">method)</span>
+
+
+<span class="s2">def </span><span class="s1">trange(*args</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+    <span class="s0">&quot;&quot;&quot;Shortcut for tqdm(range(*args), **kwargs).&quot;&quot;&quot;</span>
+    <span class="s2">return </span><span class="s1">tqdm(range(*args)</span><span class="s2">, </span><span class="s1">**kwargs)</span>
+</pre>
+</body>
+</html>

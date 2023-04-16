@@ -1,0 +1,1181 @@
+<html>
+<head>
+<title>_url.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cc7832;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #6a8759;}
+.s3 { color: #6897bb;}
+.s4 { color: #629755; font-style: italic;}
+.s5 { color: #808080;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_url.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">functools</span>
+<span class="s0">import </span><span class="s1">math</span>
+<span class="s0">import </span><span class="s1">warnings</span>
+<span class="s0">from </span><span class="s1">collections.abc </span><span class="s0">import </span><span class="s1">Mapping</span><span class="s0">, </span><span class="s1">Sequence</span>
+<span class="s0">from </span><span class="s1">ipaddress </span><span class="s0">import </span><span class="s1">ip_address</span>
+<span class="s0">from </span><span class="s1">urllib.parse </span><span class="s0">import </span><span class="s1">SplitResult</span><span class="s0">, </span><span class="s1">parse_qsl</span><span class="s0">, </span><span class="s1">quote</span><span class="s0">, </span><span class="s1">urljoin</span><span class="s0">, </span><span class="s1">urlsplit</span><span class="s0">, </span><span class="s1">urlunsplit</span>
+
+<span class="s0">import </span><span class="s1">idna</span>
+<span class="s0">from </span><span class="s1">multidict </span><span class="s0">import </span><span class="s1">MultiDict</span><span class="s0">, </span><span class="s1">MultiDictProxy</span>
+
+<span class="s0">from </span><span class="s1">._quoting </span><span class="s0">import </span><span class="s1">_Quoter</span><span class="s0">, </span><span class="s1">_Unquoter</span>
+
+<span class="s1">DEFAULT_PORTS = {</span><span class="s2">&quot;http&quot;</span><span class="s1">: </span><span class="s3">80</span><span class="s0">, </span><span class="s2">&quot;https&quot;</span><span class="s1">: </span><span class="s3">443</span><span class="s0">, </span><span class="s2">&quot;ws&quot;</span><span class="s1">: </span><span class="s3">80</span><span class="s0">, </span><span class="s2">&quot;wss&quot;</span><span class="s1">: </span><span class="s3">443</span><span class="s1">}</span>
+
+<span class="s1">sentinel = object()</span>
+
+
+<span class="s0">def </span><span class="s1">rewrite_module(obj: object) -&gt; object:</span>
+    <span class="s1">obj.__module__ = </span><span class="s2">&quot;yarl&quot;</span>
+    <span class="s0">return </span><span class="s1">obj</span>
+
+
+<span class="s0">class </span><span class="s1">cached_property:</span>
+    <span class="s4">&quot;&quot;&quot;Use as a class method decorator.  It operates almost exactly like 
+    the Python `@property` decorator, but it puts the result of the 
+    method it decorates into the instance dict after the first call, 
+    effectively replacing the function it decorates with an instance 
+    variable.  It is, in Python parlance, a data descriptor. 
+ 
+    &quot;&quot;&quot;</span>
+
+    <span class="s0">def </span><span class="s1">__init__(self</span><span class="s0">, </span><span class="s1">wrapped):</span>
+        <span class="s1">self.wrapped = wrapped</span>
+        <span class="s0">try</span><span class="s1">:</span>
+            <span class="s1">self.__doc__ = wrapped.__doc__</span>
+        <span class="s0">except </span><span class="s1">AttributeError:  </span><span class="s5"># pragma: no cover</span>
+            <span class="s1">self.__doc__ = </span><span class="s2">&quot;&quot;</span>
+        <span class="s1">self.name = wrapped.__name__</span>
+
+    <span class="s0">def </span><span class="s1">__get__(self</span><span class="s0">, </span><span class="s1">inst</span><span class="s0">, </span><span class="s1">owner</span><span class="s0">, </span><span class="s1">_sentinel=sentinel):</span>
+        <span class="s0">if </span><span class="s1">inst </span><span class="s0">is None</span><span class="s1">:</span>
+            <span class="s0">return </span><span class="s1">self</span>
+        <span class="s1">val = inst._cache.get(self.name</span><span class="s0">, </span><span class="s1">_sentinel)</span>
+        <span class="s0">if </span><span class="s1">val </span><span class="s0">is not </span><span class="s1">_sentinel:</span>
+            <span class="s0">return </span><span class="s1">val</span>
+        <span class="s1">val = self.wrapped(inst)</span>
+        <span class="s1">inst._cache[self.name] = val</span>
+        <span class="s0">return </span><span class="s1">val</span>
+
+    <span class="s0">def </span><span class="s1">__set__(self</span><span class="s0">, </span><span class="s1">inst</span><span class="s0">, </span><span class="s1">value):</span>
+        <span class="s0">raise </span><span class="s1">AttributeError(</span><span class="s2">&quot;cached property is read-only&quot;</span><span class="s1">)</span>
+
+
+<span class="s1">@rewrite_module</span>
+<span class="s0">class </span><span class="s1">URL:</span>
+    <span class="s5"># Don't derive from str</span>
+    <span class="s5"># follow pathlib.Path design</span>
+    <span class="s5"># probably URL will not suffer from pathlib problems:</span>
+    <span class="s5"># it's intended for libraries like aiohttp,</span>
+    <span class="s5"># not to be passed into standard library functions like os.open etc.</span>
+
+    <span class="s5"># URL grammar (RFC 3986)</span>
+    <span class="s5"># pct-encoded = &quot;%&quot; HEXDIG HEXDIG</span>
+    <span class="s5"># reserved    = gen-delims / sub-delims</span>
+    <span class="s5"># gen-delims  = &quot;:&quot; / &quot;/&quot; / &quot;?&quot; / &quot;#&quot; / &quot;[&quot; / &quot;]&quot; / &quot;@&quot;</span>
+    <span class="s5"># sub-delims  = &quot;!&quot; / &quot;$&quot; / &quot;&amp;&quot; / &quot;'&quot; / &quot;(&quot; / &quot;)&quot;</span>
+    <span class="s5">#             / &quot;*&quot; / &quot;+&quot; / &quot;,&quot; / &quot;;&quot; / &quot;=&quot;</span>
+    <span class="s5"># unreserved  = ALPHA / DIGIT / &quot;-&quot; / &quot;.&quot; / &quot;_&quot; / &quot;~&quot;</span>
+    <span class="s5"># URI         = scheme &quot;:&quot; hier-part [ &quot;?&quot; query ] [ &quot;#&quot; fragment ]</span>
+    <span class="s5"># hier-part   = &quot;//&quot; authority path-abempty</span>
+    <span class="s5">#             / path-absolute</span>
+    <span class="s5">#             / path-rootless</span>
+    <span class="s5">#             / path-empty</span>
+    <span class="s5"># scheme      = ALPHA *( ALPHA / DIGIT / &quot;+&quot; / &quot;-&quot; / &quot;.&quot; )</span>
+    <span class="s5"># authority   = [ userinfo &quot;@&quot; ] host [ &quot;:&quot; port ]</span>
+    <span class="s5"># userinfo    = *( unreserved / pct-encoded / sub-delims / &quot;:&quot; )</span>
+    <span class="s5"># host        = IP-literal / IPv4address / reg-name</span>
+    <span class="s5"># IP-literal = &quot;[&quot; ( IPv6address / IPvFuture  ) &quot;]&quot;</span>
+    <span class="s5"># IPvFuture  = &quot;v&quot; 1*HEXDIG &quot;.&quot; 1*( unreserved / sub-delims / &quot;:&quot; )</span>
+    <span class="s5"># IPv6address =                            6( h16 &quot;:&quot; ) ls32</span>
+    <span class="s5">#             /                       &quot;::&quot; 5( h16 &quot;:&quot; ) ls32</span>
+    <span class="s5">#             / [               h16 ] &quot;::&quot; 4( h16 &quot;:&quot; ) ls32</span>
+    <span class="s5">#             / [ *1( h16 &quot;:&quot; ) h16 ] &quot;::&quot; 3( h16 &quot;:&quot; ) ls32</span>
+    <span class="s5">#             / [ *2( h16 &quot;:&quot; ) h16 ] &quot;::&quot; 2( h16 &quot;:&quot; ) ls32</span>
+    <span class="s5">#             / [ *3( h16 &quot;:&quot; ) h16 ] &quot;::&quot;    h16 &quot;:&quot;   ls32</span>
+    <span class="s5">#             / [ *4( h16 &quot;:&quot; ) h16 ] &quot;::&quot;              ls32</span>
+    <span class="s5">#             / [ *5( h16 &quot;:&quot; ) h16 ] &quot;::&quot;              h16</span>
+    <span class="s5">#             / [ *6( h16 &quot;:&quot; ) h16 ] &quot;::&quot;</span>
+    <span class="s5"># ls32        = ( h16 &quot;:&quot; h16 ) / IPv4address</span>
+    <span class="s5">#             ; least-significant 32 bits of address</span>
+    <span class="s5"># h16         = 1*4HEXDIG</span>
+    <span class="s5">#             ; 16 bits of address represented in hexadecimal</span>
+    <span class="s5"># IPv4address = dec-octet &quot;.&quot; dec-octet &quot;.&quot; dec-octet &quot;.&quot; dec-octet</span>
+    <span class="s5"># dec-octet   = DIGIT                 ; 0-9</span>
+    <span class="s5">#             / %x31-39 DIGIT         ; 10-99</span>
+    <span class="s5">#             / &quot;1&quot; 2DIGIT            ; 100-199</span>
+    <span class="s5">#             / &quot;2&quot; %x30-34 DIGIT     ; 200-249</span>
+    <span class="s5">#             / &quot;25&quot; %x30-35          ; 250-255</span>
+    <span class="s5"># reg-name    = *( unreserved / pct-encoded / sub-delims )</span>
+    <span class="s5"># port        = *DIGIT</span>
+    <span class="s5"># path          = path-abempty    ; begins with &quot;/&quot; or is empty</span>
+    <span class="s5">#               / path-absolute   ; begins with &quot;/&quot; but not &quot;//&quot;</span>
+    <span class="s5">#               / path-noscheme   ; begins with a non-colon segment</span>
+    <span class="s5">#               / path-rootless   ; begins with a segment</span>
+    <span class="s5">#               / path-empty      ; zero characters</span>
+    <span class="s5"># path-abempty  = *( &quot;/&quot; segment )</span>
+    <span class="s5"># path-absolute = &quot;/&quot; [ segment-nz *( &quot;/&quot; segment ) ]</span>
+    <span class="s5"># path-noscheme = segment-nz-nc *( &quot;/&quot; segment )</span>
+    <span class="s5"># path-rootless = segment-nz *( &quot;/&quot; segment )</span>
+    <span class="s5"># path-empty    = 0&lt;pchar&gt;</span>
+    <span class="s5"># segment       = *pchar</span>
+    <span class="s5"># segment-nz    = 1*pchar</span>
+    <span class="s5"># segment-nz-nc = 1*( unreserved / pct-encoded / sub-delims / &quot;@&quot; )</span>
+    <span class="s5">#               ; non-zero-length segment without any colon &quot;:&quot;</span>
+    <span class="s5"># pchar         = unreserved / pct-encoded / sub-delims / &quot;:&quot; / &quot;@&quot;</span>
+    <span class="s5"># query       = *( pchar / &quot;/&quot; / &quot;?&quot; )</span>
+    <span class="s5"># fragment    = *( pchar / &quot;/&quot; / &quot;?&quot; )</span>
+    <span class="s5"># URI-reference = URI / relative-ref</span>
+    <span class="s5"># relative-ref  = relative-part [ &quot;?&quot; query ] [ &quot;#&quot; fragment ]</span>
+    <span class="s5"># relative-part = &quot;//&quot; authority path-abempty</span>
+    <span class="s5">#               / path-absolute</span>
+    <span class="s5">#               / path-noscheme</span>
+    <span class="s5">#               / path-empty</span>
+    <span class="s5"># absolute-URI  = scheme &quot;:&quot; hier-part [ &quot;?&quot; query ]</span>
+    <span class="s1">__slots__ = (</span><span class="s2">&quot;_cache&quot;</span><span class="s0">, </span><span class="s2">&quot;_val&quot;</span><span class="s1">)</span>
+
+    <span class="s1">_QUOTER = _Quoter(requote=</span><span class="s0">False</span><span class="s1">)</span>
+    <span class="s1">_REQUOTER = _Quoter()</span>
+    <span class="s1">_PATH_QUOTER = _Quoter(safe=</span><span class="s2">&quot;@:&quot;</span><span class="s0">, </span><span class="s1">protected=</span><span class="s2">&quot;/+&quot;</span><span class="s0">, </span><span class="s1">requote=</span><span class="s0">False</span><span class="s1">)</span>
+    <span class="s1">_PATH_REQUOTER = _Quoter(safe=</span><span class="s2">&quot;@:&quot;</span><span class="s0">, </span><span class="s1">protected=</span><span class="s2">&quot;/+&quot;</span><span class="s1">)</span>
+    <span class="s1">_QUERY_QUOTER = _Quoter(safe=</span><span class="s2">&quot;?/:@&quot;</span><span class="s0">, </span><span class="s1">protected=</span><span class="s2">&quot;=+&amp;;&quot;</span><span class="s0">, </span><span class="s1">qs=</span><span class="s0">True, </span><span class="s1">requote=</span><span class="s0">False</span><span class="s1">)</span>
+    <span class="s1">_QUERY_REQUOTER = _Quoter(safe=</span><span class="s2">&quot;?/:@&quot;</span><span class="s0">, </span><span class="s1">protected=</span><span class="s2">&quot;=+&amp;;&quot;</span><span class="s0">, </span><span class="s1">qs=</span><span class="s0">True</span><span class="s1">)</span>
+    <span class="s1">_QUERY_PART_QUOTER = _Quoter(safe=</span><span class="s2">&quot;?/:@&quot;</span><span class="s0">, </span><span class="s1">qs=</span><span class="s0">True, </span><span class="s1">requote=</span><span class="s0">False</span><span class="s1">)</span>
+    <span class="s1">_FRAGMENT_QUOTER = _Quoter(safe=</span><span class="s2">&quot;?/:@&quot;</span><span class="s0">, </span><span class="s1">requote=</span><span class="s0">False</span><span class="s1">)</span>
+    <span class="s1">_FRAGMENT_REQUOTER = _Quoter(safe=</span><span class="s2">&quot;?/:@&quot;</span><span class="s1">)</span>
+
+    <span class="s1">_UNQUOTER = _Unquoter()</span>
+    <span class="s1">_PATH_UNQUOTER = _Unquoter(unsafe=</span><span class="s2">&quot;+&quot;</span><span class="s1">)</span>
+    <span class="s1">_QS_UNQUOTER = _Unquoter(qs=</span><span class="s0">True</span><span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">__new__(cls</span><span class="s0">, </span><span class="s1">val=</span><span class="s2">&quot;&quot;</span><span class="s0">, </span><span class="s1">*</span><span class="s0">, </span><span class="s1">encoded=</span><span class="s0">False, </span><span class="s1">strict=</span><span class="s0">None</span><span class="s1">):</span>
+        <span class="s0">if </span><span class="s1">strict </span><span class="s0">is not None</span><span class="s1">:  </span><span class="s5"># pragma: no cover</span>
+            <span class="s1">warnings.warn(</span><span class="s2">&quot;strict parameter is ignored&quot;</span><span class="s1">)</span>
+        <span class="s0">if </span><span class="s1">type(val) </span><span class="s0">is </span><span class="s1">cls:</span>
+            <span class="s0">return </span><span class="s1">val</span>
+        <span class="s0">if </span><span class="s1">type(val) </span><span class="s0">is </span><span class="s1">str:</span>
+            <span class="s1">val = urlsplit(val)</span>
+        <span class="s0">elif </span><span class="s1">type(val) </span><span class="s0">is </span><span class="s1">SplitResult:</span>
+            <span class="s0">if not </span><span class="s1">encoded:</span>
+                <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;Cannot apply decoding to SplitResult&quot;</span><span class="s1">)</span>
+        <span class="s0">elif </span><span class="s1">isinstance(val</span><span class="s0">, </span><span class="s1">str):</span>
+            <span class="s1">val = urlsplit(str(val))</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span><span class="s2">&quot;Constructor parameter should be str&quot;</span><span class="s1">)</span>
+
+        <span class="s0">if not </span><span class="s1">encoded:</span>
+            <span class="s0">if not </span><span class="s1">val[</span><span class="s3">1</span><span class="s1">]:  </span><span class="s5"># netloc</span>
+                <span class="s1">netloc = </span><span class="s2">&quot;&quot;</span>
+                <span class="s1">host = </span><span class="s2">&quot;&quot;</span>
+            <span class="s0">else</span><span class="s1">:</span>
+                <span class="s1">host = val.hostname</span>
+                <span class="s0">if </span><span class="s1">host </span><span class="s0">is None</span><span class="s1">:</span>
+                    <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;Invalid URL: host is required for absolute urls&quot;</span><span class="s1">)</span>
+
+                <span class="s0">try</span><span class="s1">:</span>
+                    <span class="s1">port = val.port</span>
+                <span class="s0">except </span><span class="s1">ValueError </span><span class="s0">as </span><span class="s1">e:</span>
+                    <span class="s0">raise </span><span class="s1">ValueError(</span>
+                        <span class="s2">&quot;Invalid URL: port can't be converted to integer&quot;</span>
+                    <span class="s1">) </span><span class="s0">from </span><span class="s1">e</span>
+
+                <span class="s1">netloc = cls._make_netloc(</span>
+                    <span class="s1">val.username</span><span class="s0">, </span><span class="s1">val.password</span><span class="s0">, </span><span class="s1">host</span><span class="s0">, </span><span class="s1">port</span><span class="s0">, </span><span class="s1">encode=</span><span class="s0">True, </span><span class="s1">requote=</span><span class="s0">True</span>
+                <span class="s1">)</span>
+            <span class="s1">path = cls._PATH_REQUOTER(val[</span><span class="s3">2</span><span class="s1">])</span>
+            <span class="s0">if </span><span class="s1">netloc:</span>
+                <span class="s1">path = cls._normalize_path(path)</span>
+
+            <span class="s1">cls._validate_authority_uri_abs_path(host=host</span><span class="s0">, </span><span class="s1">path=path)</span>
+            <span class="s1">query = cls._QUERY_REQUOTER(val[</span><span class="s3">3</span><span class="s1">])</span>
+            <span class="s1">fragment = cls._FRAGMENT_REQUOTER(val[</span><span class="s3">4</span><span class="s1">])</span>
+            <span class="s1">val = SplitResult(val[</span><span class="s3">0</span><span class="s1">]</span><span class="s0">, </span><span class="s1">netloc</span><span class="s0">, </span><span class="s1">path</span><span class="s0">, </span><span class="s1">query</span><span class="s0">, </span><span class="s1">fragment)</span>
+
+        <span class="s1">self = object.__new__(cls)</span>
+        <span class="s1">self._val = val</span>
+        <span class="s1">self._cache = {}</span>
+        <span class="s0">return </span><span class="s1">self</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s0">def </span><span class="s1">build(</span>
+        <span class="s1">cls</span><span class="s0">,</span>
+        <span class="s1">*</span><span class="s0">,</span>
+        <span class="s1">scheme=</span><span class="s2">&quot;&quot;</span><span class="s0">,</span>
+        <span class="s1">authority=</span><span class="s2">&quot;&quot;</span><span class="s0">,</span>
+        <span class="s1">user=</span><span class="s0">None,</span>
+        <span class="s1">password=</span><span class="s0">None,</span>
+        <span class="s1">host=</span><span class="s2">&quot;&quot;</span><span class="s0">,</span>
+        <span class="s1">port=</span><span class="s0">None,</span>
+        <span class="s1">path=</span><span class="s2">&quot;&quot;</span><span class="s0">,</span>
+        <span class="s1">query=</span><span class="s0">None,</span>
+        <span class="s1">query_string=</span><span class="s2">&quot;&quot;</span><span class="s0">,</span>
+        <span class="s1">fragment=</span><span class="s2">&quot;&quot;</span><span class="s0">,</span>
+        <span class="s1">encoded=</span><span class="s0">False,</span>
+    <span class="s1">):</span>
+        <span class="s4">&quot;&quot;&quot;Creates and returns a new URL&quot;&quot;&quot;</span>
+
+        <span class="s0">if </span><span class="s1">authority </span><span class="s0">and </span><span class="s1">(user </span><span class="s0">or </span><span class="s1">password </span><span class="s0">or </span><span class="s1">host </span><span class="s0">or </span><span class="s1">port):</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span>
+                <span class="s2">'Can</span><span class="s0">\'</span><span class="s2">t mix &quot;authority&quot; with &quot;user&quot;, &quot;password&quot;, &quot;host&quot; or &quot;port&quot;.'</span>
+            <span class="s1">)</span>
+        <span class="s0">if </span><span class="s1">port </span><span class="s0">and not </span><span class="s1">host:</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">'Can</span><span class="s0">\'</span><span class="s2">t build URL with &quot;port&quot; but without &quot;host&quot;.'</span><span class="s1">)</span>
+        <span class="s0">if </span><span class="s1">query </span><span class="s0">and </span><span class="s1">query_string:</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">'Only one of &quot;query&quot; or &quot;query_string&quot; should be passed'</span><span class="s1">)</span>
+        <span class="s0">if </span><span class="s1">(</span>
+            <span class="s1">scheme </span><span class="s0">is None</span>
+            <span class="s0">or </span><span class="s1">authority </span><span class="s0">is None</span>
+            <span class="s0">or </span><span class="s1">path </span><span class="s0">is None</span>
+            <span class="s0">or </span><span class="s1">query_string </span><span class="s0">is None</span>
+            <span class="s0">or </span><span class="s1">fragment </span><span class="s0">is None</span>
+        <span class="s1">):</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span>
+                <span class="s2">'NoneType is illegal for &quot;scheme&quot;, &quot;authority&quot;, &quot;path&quot;, '</span>
+                <span class="s2">'&quot;query_string&quot;, and &quot;fragment&quot; args, use empty string instead.'</span>
+            <span class="s1">)</span>
+
+        <span class="s0">if </span><span class="s1">authority:</span>
+            <span class="s0">if </span><span class="s1">encoded:</span>
+                <span class="s1">netloc = authority</span>
+            <span class="s0">else</span><span class="s1">:</span>
+                <span class="s1">tmp = SplitResult(</span><span class="s2">&quot;&quot;</span><span class="s0">, </span><span class="s1">authority</span><span class="s0">, </span><span class="s2">&quot;&quot;</span><span class="s0">, </span><span class="s2">&quot;&quot;</span><span class="s0">, </span><span class="s2">&quot;&quot;</span><span class="s1">)</span>
+                <span class="s1">netloc = cls._make_netloc(</span>
+                    <span class="s1">tmp.username</span><span class="s0">, </span><span class="s1">tmp.password</span><span class="s0">, </span><span class="s1">tmp.hostname</span><span class="s0">, </span><span class="s1">tmp.port</span><span class="s0">, </span><span class="s1">encode=</span><span class="s0">True</span>
+                <span class="s1">)</span>
+        <span class="s0">elif not </span><span class="s1">user </span><span class="s0">and not </span><span class="s1">password </span><span class="s0">and not </span><span class="s1">host </span><span class="s0">and not </span><span class="s1">port:</span>
+            <span class="s1">netloc = </span><span class="s2">&quot;&quot;</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s1">netloc = cls._make_netloc(</span>
+                <span class="s1">user</span><span class="s0">, </span><span class="s1">password</span><span class="s0">, </span><span class="s1">host</span><span class="s0">, </span><span class="s1">port</span><span class="s0">, </span><span class="s1">encode=</span><span class="s0">not </span><span class="s1">encoded</span><span class="s0">, </span><span class="s1">encode_host=</span><span class="s0">not </span><span class="s1">encoded</span>
+            <span class="s1">)</span>
+        <span class="s0">if not </span><span class="s1">encoded:</span>
+            <span class="s1">path = cls._PATH_QUOTER(path)</span>
+            <span class="s0">if </span><span class="s1">netloc:</span>
+                <span class="s1">path = cls._normalize_path(path)</span>
+
+            <span class="s1">cls._validate_authority_uri_abs_path(host=host</span><span class="s0">, </span><span class="s1">path=path)</span>
+            <span class="s1">query_string = cls._QUERY_QUOTER(query_string)</span>
+            <span class="s1">fragment = cls._FRAGMENT_QUOTER(fragment)</span>
+
+        <span class="s1">url = cls(</span>
+            <span class="s1">SplitResult(scheme</span><span class="s0">, </span><span class="s1">netloc</span><span class="s0">, </span><span class="s1">path</span><span class="s0">, </span><span class="s1">query_string</span><span class="s0">, </span><span class="s1">fragment)</span><span class="s0">, </span><span class="s1">encoded=</span><span class="s0">True</span>
+        <span class="s1">)</span>
+
+        <span class="s0">if </span><span class="s1">query:</span>
+            <span class="s0">return </span><span class="s1">url.with_query(query)</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s0">return </span><span class="s1">url</span>
+
+    <span class="s0">def </span><span class="s1">__init_subclass__(cls):</span>
+        <span class="s0">raise </span><span class="s1">TypeError(</span><span class="s2">f&quot;Inheriting a class </span><span class="s0">{</span><span class="s1">cls</span><span class="s0">!r} </span><span class="s2">from URL is forbidden&quot;</span><span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">__str__(self):</span>
+        <span class="s1">val = self._val</span>
+        <span class="s0">if not </span><span class="s1">val.path </span><span class="s0">and </span><span class="s1">self.is_absolute() </span><span class="s0">and </span><span class="s1">(val.query </span><span class="s0">or </span><span class="s1">val.fragment):</span>
+            <span class="s1">val = val._replace(path=</span><span class="s2">&quot;/&quot;</span><span class="s1">)</span>
+        <span class="s0">return </span><span class="s1">urlunsplit(val)</span>
+
+    <span class="s0">def </span><span class="s1">__repr__(self):</span>
+        <span class="s0">return </span><span class="s2">f&quot;</span><span class="s0">{</span><span class="s1">self.__class__.__name__</span><span class="s0">}</span><span class="s2">('</span><span class="s0">{</span><span class="s1">str(self)</span><span class="s0">}</span><span class="s2">')&quot;</span>
+
+    <span class="s0">def </span><span class="s1">__bytes__(self):</span>
+        <span class="s0">return </span><span class="s1">str(self).encode(</span><span class="s2">&quot;ascii&quot;</span><span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">__eq__(self</span><span class="s0">, </span><span class="s1">other):</span>
+        <span class="s0">if not </span><span class="s1">type(other) </span><span class="s0">is </span><span class="s1">URL:</span>
+            <span class="s0">return </span><span class="s1">NotImplemented</span>
+
+        <span class="s1">val1 = self._val</span>
+        <span class="s0">if not </span><span class="s1">val1.path </span><span class="s0">and </span><span class="s1">self.is_absolute():</span>
+            <span class="s1">val1 = val1._replace(path=</span><span class="s2">&quot;/&quot;</span><span class="s1">)</span>
+
+        <span class="s1">val2 = other._val</span>
+        <span class="s0">if not </span><span class="s1">val2.path </span><span class="s0">and </span><span class="s1">other.is_absolute():</span>
+            <span class="s1">val2 = val2._replace(path=</span><span class="s2">&quot;/&quot;</span><span class="s1">)</span>
+
+        <span class="s0">return </span><span class="s1">val1 == val2</span>
+
+    <span class="s0">def </span><span class="s1">__hash__(self):</span>
+        <span class="s1">ret = self._cache.get(</span><span class="s2">&quot;hash&quot;</span><span class="s1">)</span>
+        <span class="s0">if </span><span class="s1">ret </span><span class="s0">is None</span><span class="s1">:</span>
+            <span class="s1">val = self._val</span>
+            <span class="s0">if not </span><span class="s1">val.path </span><span class="s0">and </span><span class="s1">self.is_absolute():</span>
+                <span class="s1">val = val._replace(path=</span><span class="s2">&quot;/&quot;</span><span class="s1">)</span>
+            <span class="s1">ret = self._cache[</span><span class="s2">&quot;hash&quot;</span><span class="s1">] = hash(val)</span>
+        <span class="s0">return </span><span class="s1">ret</span>
+
+    <span class="s0">def </span><span class="s1">__le__(self</span><span class="s0">, </span><span class="s1">other):</span>
+        <span class="s0">if not </span><span class="s1">type(other) </span><span class="s0">is </span><span class="s1">URL:</span>
+            <span class="s0">return </span><span class="s1">NotImplemented</span>
+        <span class="s0">return </span><span class="s1">self._val &lt;= other._val</span>
+
+    <span class="s0">def </span><span class="s1">__lt__(self</span><span class="s0">, </span><span class="s1">other):</span>
+        <span class="s0">if not </span><span class="s1">type(other) </span><span class="s0">is </span><span class="s1">URL:</span>
+            <span class="s0">return </span><span class="s1">NotImplemented</span>
+        <span class="s0">return </span><span class="s1">self._val &lt; other._val</span>
+
+    <span class="s0">def </span><span class="s1">__ge__(self</span><span class="s0">, </span><span class="s1">other):</span>
+        <span class="s0">if not </span><span class="s1">type(other) </span><span class="s0">is </span><span class="s1">URL:</span>
+            <span class="s0">return </span><span class="s1">NotImplemented</span>
+        <span class="s0">return </span><span class="s1">self._val &gt;= other._val</span>
+
+    <span class="s0">def </span><span class="s1">__gt__(self</span><span class="s0">, </span><span class="s1">other):</span>
+        <span class="s0">if not </span><span class="s1">type(other) </span><span class="s0">is </span><span class="s1">URL:</span>
+            <span class="s0">return </span><span class="s1">NotImplemented</span>
+        <span class="s0">return </span><span class="s1">self._val &gt; other._val</span>
+
+    <span class="s0">def </span><span class="s1">__truediv__(self</span><span class="s0">, </span><span class="s1">name):</span>
+        <span class="s1">name = self._PATH_QUOTER(name)</span>
+        <span class="s0">if </span><span class="s1">name.startswith(</span><span class="s2">&quot;/&quot;</span><span class="s1">):</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span>
+                <span class="s2">f&quot;Appending path </span><span class="s0">{</span><span class="s1">name</span><span class="s0">!r} </span><span class="s2">starting from slash is forbidden&quot;</span>
+            <span class="s1">)</span>
+        <span class="s1">path = self._val.path</span>
+        <span class="s0">if </span><span class="s1">path == </span><span class="s2">&quot;/&quot;</span><span class="s1">:</span>
+            <span class="s1">new_path = </span><span class="s2">&quot;/&quot; </span><span class="s1">+ name</span>
+        <span class="s0">elif not </span><span class="s1">path </span><span class="s0">and not </span><span class="s1">self.is_absolute():</span>
+            <span class="s1">new_path = name</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s1">parts = path.rstrip(</span><span class="s2">&quot;/&quot;</span><span class="s1">).split(</span><span class="s2">&quot;/&quot;</span><span class="s1">)</span>
+            <span class="s1">parts.append(name)</span>
+            <span class="s1">new_path = </span><span class="s2">&quot;/&quot;</span><span class="s1">.join(parts)</span>
+        <span class="s0">if </span><span class="s1">self.is_absolute():</span>
+            <span class="s1">new_path = self._normalize_path(new_path)</span>
+        <span class="s0">return </span><span class="s1">URL(</span>
+            <span class="s1">self._val._replace(path=new_path</span><span class="s0">, </span><span class="s1">query=</span><span class="s2">&quot;&quot;</span><span class="s0">, </span><span class="s1">fragment=</span><span class="s2">&quot;&quot;</span><span class="s1">)</span><span class="s0">, </span><span class="s1">encoded=</span><span class="s0">True</span>
+        <span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">__mod__(self</span><span class="s0">, </span><span class="s1">query):</span>
+        <span class="s0">return </span><span class="s1">self.update_query(query)</span>
+
+    <span class="s0">def </span><span class="s1">__bool__(self) -&gt; bool:</span>
+        <span class="s0">return </span><span class="s1">bool(</span>
+            <span class="s1">self._val.netloc </span><span class="s0">or </span><span class="s1">self._val.path </span><span class="s0">or </span><span class="s1">self._val.query </span><span class="s0">or </span><span class="s1">self._val.fragment</span>
+        <span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">__getstate__(self):</span>
+        <span class="s0">return </span><span class="s1">(self._val</span><span class="s0">,</span><span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">__setstate__(self</span><span class="s0">, </span><span class="s1">state):</span>
+        <span class="s0">if </span><span class="s1">state[</span><span class="s3">0</span><span class="s1">] </span><span class="s0">is None and </span><span class="s1">isinstance(state[</span><span class="s3">1</span><span class="s1">]</span><span class="s0">, </span><span class="s1">dict):</span>
+            <span class="s5"># default style pickle</span>
+            <span class="s1">self._val = state[</span><span class="s3">1</span><span class="s1">][</span><span class="s2">&quot;_val&quot;</span><span class="s1">]</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s1">self._val</span><span class="s0">, </span><span class="s1">*unused = state</span>
+        <span class="s1">self._cache = {}</span>
+
+    <span class="s0">def </span><span class="s1">is_absolute(self):</span>
+        <span class="s4">&quot;&quot;&quot;A check for absolute URLs. 
+ 
+        Return True for absolute ones (having scheme or starting 
+        with //), False otherwise. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self.raw_host </span><span class="s0">is not None</span>
+
+    <span class="s0">def </span><span class="s1">is_default_port(self):</span>
+        <span class="s4">&quot;&quot;&quot;A check for default port. 
+ 
+        Return True if port is default for specified scheme, 
+        e.g. 'http://python.org' or 'http://python.org:80', False 
+        otherwise. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">if </span><span class="s1">self.port </span><span class="s0">is None</span><span class="s1">:</span>
+            <span class="s0">return False</span>
+        <span class="s1">default = DEFAULT_PORTS.get(self.scheme)</span>
+        <span class="s0">if </span><span class="s1">default </span><span class="s0">is None</span><span class="s1">:</span>
+            <span class="s0">return False</span>
+        <span class="s0">return </span><span class="s1">self.port == default</span>
+
+    <span class="s0">def </span><span class="s1">origin(self):</span>
+        <span class="s4">&quot;&quot;&quot;Return an URL with scheme, host and port parts only. 
+ 
+        user, password, path, query and fragment are removed. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s5"># TODO: add a keyword-only option for keeping user/pass maybe?</span>
+        <span class="s0">if not </span><span class="s1">self.is_absolute():</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;URL should be absolute&quot;</span><span class="s1">)</span>
+        <span class="s0">if not </span><span class="s1">self._val.scheme:</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;URL should have scheme&quot;</span><span class="s1">)</span>
+        <span class="s1">v = self._val</span>
+        <span class="s1">netloc = self._make_netloc(</span><span class="s0">None, None, </span><span class="s1">v.hostname</span><span class="s0">, </span><span class="s1">v.port)</span>
+        <span class="s1">val = v._replace(netloc=netloc</span><span class="s0">, </span><span class="s1">path=</span><span class="s2">&quot;&quot;</span><span class="s0">, </span><span class="s1">query=</span><span class="s2">&quot;&quot;</span><span class="s0">, </span><span class="s1">fragment=</span><span class="s2">&quot;&quot;</span><span class="s1">)</span>
+        <span class="s0">return </span><span class="s1">URL(val</span><span class="s0">, </span><span class="s1">encoded=</span><span class="s0">True</span><span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">relative(self):</span>
+        <span class="s4">&quot;&quot;&quot;Return a relative part of the URL. 
+ 
+        scheme, user, password, host and port are removed. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">if not </span><span class="s1">self.is_absolute():</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;URL should be absolute&quot;</span><span class="s1">)</span>
+        <span class="s1">val = self._val._replace(scheme=</span><span class="s2">&quot;&quot;</span><span class="s0">, </span><span class="s1">netloc=</span><span class="s2">&quot;&quot;</span><span class="s1">)</span>
+        <span class="s0">return </span><span class="s1">URL(val</span><span class="s0">, </span><span class="s1">encoded=</span><span class="s0">True</span><span class="s1">)</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">scheme(self):</span>
+        <span class="s4">&quot;&quot;&quot;Scheme for absolute URLs. 
+ 
+        Empty string for relative URLs or URLs starting with // 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self._val.scheme</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">raw_authority(self):</span>
+        <span class="s4">&quot;&quot;&quot;Encoded authority part of URL. 
+ 
+        Empty string for relative URLs. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self._val.netloc</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">authority(self):</span>
+        <span class="s4">&quot;&quot;&quot;Decoded authority part of URL. 
+ 
+        Empty string for relative URLs. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self._make_netloc(</span>
+            <span class="s1">self.user</span><span class="s0">, </span><span class="s1">self.password</span><span class="s0">, </span><span class="s1">self.host</span><span class="s0">, </span><span class="s1">self.port</span><span class="s0">, </span><span class="s1">encode_host=</span><span class="s0">False</span>
+        <span class="s1">)</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">raw_user(self):</span>
+        <span class="s4">&quot;&quot;&quot;Encoded user part of URL. 
+ 
+        None if user is missing. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s5"># not .username</span>
+        <span class="s1">ret = self._val.username</span>
+        <span class="s0">if not </span><span class="s1">ret:</span>
+            <span class="s0">return None</span>
+        <span class="s0">return </span><span class="s1">ret</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">user(self):</span>
+        <span class="s4">&quot;&quot;&quot;Decoded user part of URL. 
+ 
+        None if user is missing. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self._UNQUOTER(self.raw_user)</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">raw_password(self):</span>
+        <span class="s4">&quot;&quot;&quot;Encoded password part of URL. 
+ 
+        None if password is missing. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self._val.password</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">password(self):</span>
+        <span class="s4">&quot;&quot;&quot;Decoded password part of URL. 
+ 
+        None if password is missing. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self._UNQUOTER(self.raw_password)</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">raw_host(self):</span>
+        <span class="s4">&quot;&quot;&quot;Encoded host part of URL. 
+ 
+        None for relative URLs. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s5"># Use host instead of hostname for sake of shortness</span>
+        <span class="s5"># May add .hostname prop later</span>
+        <span class="s0">return </span><span class="s1">self._val.hostname</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">host(self):</span>
+        <span class="s4">&quot;&quot;&quot;Decoded host part of URL. 
+ 
+        None for relative URLs. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s1">raw = self.raw_host</span>
+        <span class="s0">if </span><span class="s1">raw </span><span class="s0">is None</span><span class="s1">:</span>
+            <span class="s0">return None</span>
+        <span class="s0">if </span><span class="s2">&quot;%&quot; </span><span class="s0">in </span><span class="s1">raw:</span>
+            <span class="s5"># Hack for scoped IPv6 addresses like</span>
+            <span class="s5"># fe80::2%Проверка</span>
+            <span class="s5"># presence of '%' sign means only IPv6 address, so idna is useless.</span>
+            <span class="s0">return </span><span class="s1">raw</span>
+        <span class="s0">return </span><span class="s1">_idna_decode(raw)</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">port(self):</span>
+        <span class="s4">&quot;&quot;&quot;Port part of URL, with scheme-based fallback. 
+ 
+        None for relative URLs or URLs without explicit port and 
+        scheme without default port substitution. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self._val.port </span><span class="s0">or </span><span class="s1">DEFAULT_PORTS.get(self._val.scheme)</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">explicit_port(self):</span>
+        <span class="s4">&quot;&quot;&quot;Port part of URL, without scheme-based fallback. 
+ 
+        None for relative URLs or URLs without explicit port. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self._val.port</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">raw_path(self):</span>
+        <span class="s4">&quot;&quot;&quot;Encoded path of URL. 
+ 
+        / for absolute URLs without path part. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s1">ret = self._val.path</span>
+        <span class="s0">if not </span><span class="s1">ret </span><span class="s0">and </span><span class="s1">self.is_absolute():</span>
+            <span class="s1">ret = </span><span class="s2">&quot;/&quot;</span>
+        <span class="s0">return </span><span class="s1">ret</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">path(self):</span>
+        <span class="s4">&quot;&quot;&quot;Decoded path of URL. 
+ 
+        / for absolute URLs without path part. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self._PATH_UNQUOTER(self.raw_path)</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">query(self):</span>
+        <span class="s4">&quot;&quot;&quot;A MultiDictProxy representing parsed query parameters in decoded 
+        representation. 
+ 
+        Empty value if URL has no query part. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s1">ret = MultiDict(parse_qsl(self.raw_query_string</span><span class="s0">, </span><span class="s1">keep_blank_values=</span><span class="s0">True</span><span class="s1">))</span>
+        <span class="s0">return </span><span class="s1">MultiDictProxy(ret)</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">raw_query_string(self):</span>
+        <span class="s4">&quot;&quot;&quot;Encoded query part of URL. 
+ 
+        Empty string if query is missing. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self._val.query</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">query_string(self):</span>
+        <span class="s4">&quot;&quot;&quot;Decoded query part of URL. 
+ 
+        Empty string if query is missing. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self._QS_UNQUOTER(self.raw_query_string)</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">path_qs(self):</span>
+        <span class="s4">&quot;&quot;&quot;Decoded path of URL with query.&quot;&quot;&quot;</span>
+        <span class="s0">if not </span><span class="s1">self.query_string:</span>
+            <span class="s0">return </span><span class="s1">self.path</span>
+        <span class="s0">return </span><span class="s2">f&quot;</span><span class="s0">{</span><span class="s1">self.path</span><span class="s0">}</span><span class="s2">?</span><span class="s0">{</span><span class="s1">self.query_string</span><span class="s0">}</span><span class="s2">&quot;</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">raw_path_qs(self):</span>
+        <span class="s4">&quot;&quot;&quot;Encoded path of URL with query.&quot;&quot;&quot;</span>
+        <span class="s0">if not </span><span class="s1">self.raw_query_string:</span>
+            <span class="s0">return </span><span class="s1">self.raw_path</span>
+        <span class="s0">return </span><span class="s2">f&quot;</span><span class="s0">{</span><span class="s1">self.raw_path</span><span class="s0">}</span><span class="s2">?</span><span class="s0">{</span><span class="s1">self.raw_query_string</span><span class="s0">}</span><span class="s2">&quot;</span>
+
+    <span class="s1">@property</span>
+    <span class="s0">def </span><span class="s1">raw_fragment(self):</span>
+        <span class="s4">&quot;&quot;&quot;Encoded fragment part of URL. 
+ 
+        Empty string if fragment is missing. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self._val.fragment</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">fragment(self):</span>
+        <span class="s4">&quot;&quot;&quot;Decoded fragment part of URL. 
+ 
+        Empty string if fragment is missing. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self._UNQUOTER(self.raw_fragment)</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">raw_parts(self):</span>
+        <span class="s4">&quot;&quot;&quot;A tuple containing encoded *path* parts. 
+ 
+        ('/',) for absolute URLs if *path* is missing. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s1">path = self._val.path</span>
+        <span class="s0">if </span><span class="s1">self.is_absolute():</span>
+            <span class="s0">if not </span><span class="s1">path:</span>
+                <span class="s1">parts = [</span><span class="s2">&quot;/&quot;</span><span class="s1">]</span>
+            <span class="s0">else</span><span class="s1">:</span>
+                <span class="s1">parts = [</span><span class="s2">&quot;/&quot;</span><span class="s1">] + path[</span><span class="s3">1</span><span class="s1">:].split(</span><span class="s2">&quot;/&quot;</span><span class="s1">)</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s0">if </span><span class="s1">path.startswith(</span><span class="s2">&quot;/&quot;</span><span class="s1">):</span>
+                <span class="s1">parts = [</span><span class="s2">&quot;/&quot;</span><span class="s1">] + path[</span><span class="s3">1</span><span class="s1">:].split(</span><span class="s2">&quot;/&quot;</span><span class="s1">)</span>
+            <span class="s0">else</span><span class="s1">:</span>
+                <span class="s1">parts = path.split(</span><span class="s2">&quot;/&quot;</span><span class="s1">)</span>
+        <span class="s0">return </span><span class="s1">tuple(parts)</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">parts(self):</span>
+        <span class="s4">&quot;&quot;&quot;A tuple containing decoded *path* parts. 
+ 
+        ('/',) for absolute URLs if *path* is missing. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">tuple(self._UNQUOTER(part) </span><span class="s0">for </span><span class="s1">part </span><span class="s0">in </span><span class="s1">self.raw_parts)</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">parent(self):</span>
+        <span class="s4">&quot;&quot;&quot;A new URL with last part of path removed and cleaned up query and 
+        fragment. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s1">path = self.raw_path</span>
+        <span class="s0">if not </span><span class="s1">path </span><span class="s0">or </span><span class="s1">path == </span><span class="s2">&quot;/&quot;</span><span class="s1">:</span>
+            <span class="s0">if </span><span class="s1">self.raw_fragment </span><span class="s0">or </span><span class="s1">self.raw_query_string:</span>
+                <span class="s0">return </span><span class="s1">URL(self._val._replace(query=</span><span class="s2">&quot;&quot;</span><span class="s0">, </span><span class="s1">fragment=</span><span class="s2">&quot;&quot;</span><span class="s1">)</span><span class="s0">, </span><span class="s1">encoded=</span><span class="s0">True</span><span class="s1">)</span>
+            <span class="s0">return </span><span class="s1">self</span>
+        <span class="s1">parts = path.split(</span><span class="s2">&quot;/&quot;</span><span class="s1">)</span>
+        <span class="s1">val = self._val._replace(path=</span><span class="s2">&quot;/&quot;</span><span class="s1">.join(parts[:-</span><span class="s3">1</span><span class="s1">])</span><span class="s0">, </span><span class="s1">query=</span><span class="s2">&quot;&quot;</span><span class="s0">, </span><span class="s1">fragment=</span><span class="s2">&quot;&quot;</span><span class="s1">)</span>
+        <span class="s0">return </span><span class="s1">URL(val</span><span class="s0">, </span><span class="s1">encoded=</span><span class="s0">True</span><span class="s1">)</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">raw_name(self):</span>
+        <span class="s4">&quot;&quot;&quot;The last part of raw_parts.&quot;&quot;&quot;</span>
+        <span class="s1">parts = self.raw_parts</span>
+        <span class="s0">if </span><span class="s1">self.is_absolute():</span>
+            <span class="s1">parts = parts[</span><span class="s3">1</span><span class="s1">:]</span>
+            <span class="s0">if not </span><span class="s1">parts:</span>
+                <span class="s0">return </span><span class="s2">&quot;&quot;</span>
+            <span class="s0">else</span><span class="s1">:</span>
+                <span class="s0">return </span><span class="s1">parts[-</span><span class="s3">1</span><span class="s1">]</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s0">return </span><span class="s1">parts[-</span><span class="s3">1</span><span class="s1">]</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">name(self):</span>
+        <span class="s4">&quot;&quot;&quot;The last part of parts.&quot;&quot;&quot;</span>
+        <span class="s0">return </span><span class="s1">self._UNQUOTER(self.raw_name)</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">raw_suffix(self):</span>
+        <span class="s1">name = self.raw_name</span>
+        <span class="s1">i = name.rfind(</span><span class="s2">&quot;.&quot;</span><span class="s1">)</span>
+        <span class="s0">if </span><span class="s3">0 </span><span class="s1">&lt; i &lt; len(name) - </span><span class="s3">1</span><span class="s1">:</span>
+            <span class="s0">return </span><span class="s1">name[i:]</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s0">return </span><span class="s2">&quot;&quot;</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">suffix(self):</span>
+        <span class="s0">return </span><span class="s1">self._UNQUOTER(self.raw_suffix)</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">raw_suffixes(self):</span>
+        <span class="s1">name = self.raw_name</span>
+        <span class="s0">if </span><span class="s1">name.endswith(</span><span class="s2">&quot;.&quot;</span><span class="s1">):</span>
+            <span class="s0">return </span><span class="s1">()</span>
+        <span class="s1">name = name.lstrip(</span><span class="s2">&quot;.&quot;</span><span class="s1">)</span>
+        <span class="s0">return </span><span class="s1">tuple(</span><span class="s2">&quot;.&quot; </span><span class="s1">+ suffix </span><span class="s0">for </span><span class="s1">suffix </span><span class="s0">in </span><span class="s1">name.split(</span><span class="s2">&quot;.&quot;</span><span class="s1">)[</span><span class="s3">1</span><span class="s1">:])</span>
+
+    <span class="s1">@cached_property</span>
+    <span class="s0">def </span><span class="s1">suffixes(self):</span>
+        <span class="s0">return </span><span class="s1">tuple(self._UNQUOTER(suffix) </span><span class="s0">for </span><span class="s1">suffix </span><span class="s0">in </span><span class="s1">self.raw_suffixes)</span>
+
+    <span class="s1">@staticmethod</span>
+    <span class="s0">def </span><span class="s1">_validate_authority_uri_abs_path(host</span><span class="s0">, </span><span class="s1">path):</span>
+        <span class="s4">&quot;&quot;&quot;Ensure that path in URL with authority starts with a leading slash. 
+ 
+        Raise ValueError if not. 
+        &quot;&quot;&quot;</span>
+        <span class="s0">if </span><span class="s1">len(host) &gt; </span><span class="s3">0 </span><span class="s0">and </span><span class="s1">len(path) &gt; </span><span class="s3">0 </span><span class="s0">and not </span><span class="s1">path.startswith(</span><span class="s2">&quot;/&quot;</span><span class="s1">):</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span>
+                <span class="s2">&quot;Path in a URL with authority should start with a slash ('/') if set&quot;</span>
+            <span class="s1">)</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s0">def </span><span class="s1">_normalize_path(cls</span><span class="s0">, </span><span class="s1">path):</span>
+        <span class="s5"># Drop '.' and '..' from path</span>
+
+        <span class="s1">segments = path.split(</span><span class="s2">&quot;/&quot;</span><span class="s1">)</span>
+        <span class="s1">resolved_path = []</span>
+
+        <span class="s0">for </span><span class="s1">seg </span><span class="s0">in </span><span class="s1">segments:</span>
+            <span class="s0">if </span><span class="s1">seg == </span><span class="s2">&quot;..&quot;</span><span class="s1">:</span>
+                <span class="s0">try</span><span class="s1">:</span>
+                    <span class="s1">resolved_path.pop()</span>
+                <span class="s0">except </span><span class="s1">IndexError:</span>
+                    <span class="s5"># ignore any .. segments that would otherwise cause an</span>
+                    <span class="s5"># IndexError when popped from resolved_path if</span>
+                    <span class="s5"># resolving for rfc3986</span>
+                    <span class="s0">pass</span>
+            <span class="s0">elif </span><span class="s1">seg == </span><span class="s2">&quot;.&quot;</span><span class="s1">:</span>
+                <span class="s0">continue</span>
+            <span class="s0">else</span><span class="s1">:</span>
+                <span class="s1">resolved_path.append(seg)</span>
+
+        <span class="s0">if </span><span class="s1">segments[-</span><span class="s3">1</span><span class="s1">] </span><span class="s0">in </span><span class="s1">(</span><span class="s2">&quot;.&quot;</span><span class="s0">, </span><span class="s2">&quot;..&quot;</span><span class="s1">):</span>
+            <span class="s5"># do some post-processing here.</span>
+            <span class="s5"># if the last segment was a relative dir,</span>
+            <span class="s5"># then we need to append the trailing '/'</span>
+            <span class="s1">resolved_path.append(</span><span class="s2">&quot;&quot;</span><span class="s1">)</span>
+
+        <span class="s0">return </span><span class="s2">&quot;/&quot;</span><span class="s1">.join(resolved_path)</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s0">def </span><span class="s1">_encode_host(cls</span><span class="s0">, </span><span class="s1">host</span><span class="s0">, </span><span class="s1">human=</span><span class="s0">False</span><span class="s1">):</span>
+        <span class="s0">try</span><span class="s1">:</span>
+            <span class="s1">ip</span><span class="s0">, </span><span class="s1">sep</span><span class="s0">, </span><span class="s1">zone = host.partition(</span><span class="s2">&quot;%&quot;</span><span class="s1">)</span>
+            <span class="s1">ip = ip_address(ip)</span>
+        <span class="s0">except </span><span class="s1">ValueError:</span>
+            <span class="s1">host = host.lower()</span>
+            <span class="s5"># IDNA encoding is slow,</span>
+            <span class="s5"># skip it for ASCII-only strings</span>
+            <span class="s5"># Don't move the check into _idna_encode() helper</span>
+            <span class="s5"># to reduce the cache size</span>
+            <span class="s0">if </span><span class="s1">human </span><span class="s0">or </span><span class="s1">host.isascii():</span>
+                <span class="s0">return </span><span class="s1">host</span>
+            <span class="s1">host = _idna_encode(host)</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s1">host = ip.compressed</span>
+            <span class="s0">if </span><span class="s1">sep:</span>
+                <span class="s1">host += </span><span class="s2">&quot;%&quot; </span><span class="s1">+ zone</span>
+            <span class="s0">if </span><span class="s1">ip.version == </span><span class="s3">6</span><span class="s1">:</span>
+                <span class="s1">host = </span><span class="s2">&quot;[&quot; </span><span class="s1">+ host + </span><span class="s2">&quot;]&quot;</span>
+        <span class="s0">return </span><span class="s1">host</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s0">def </span><span class="s1">_make_netloc(</span>
+        <span class="s1">cls</span><span class="s0">, </span><span class="s1">user</span><span class="s0">, </span><span class="s1">password</span><span class="s0">, </span><span class="s1">host</span><span class="s0">, </span><span class="s1">port</span><span class="s0">, </span><span class="s1">encode=</span><span class="s0">False, </span><span class="s1">encode_host=</span><span class="s0">True, </span><span class="s1">requote=</span><span class="s0">False</span>
+    <span class="s1">):</span>
+        <span class="s1">quoter = cls._REQUOTER </span><span class="s0">if </span><span class="s1">requote </span><span class="s0">else </span><span class="s1">cls._QUOTER</span>
+        <span class="s0">if </span><span class="s1">encode_host:</span>
+            <span class="s1">ret = cls._encode_host(host)</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s1">ret = host</span>
+        <span class="s0">if </span><span class="s1">port:</span>
+            <span class="s1">ret = ret + </span><span class="s2">&quot;:&quot; </span><span class="s1">+ str(port)</span>
+        <span class="s0">if </span><span class="s1">password </span><span class="s0">is not None</span><span class="s1">:</span>
+            <span class="s0">if not </span><span class="s1">user:</span>
+                <span class="s1">user = </span><span class="s2">&quot;&quot;</span>
+            <span class="s0">else</span><span class="s1">:</span>
+                <span class="s0">if </span><span class="s1">encode:</span>
+                    <span class="s1">user = quoter(user)</span>
+            <span class="s0">if </span><span class="s1">encode:</span>
+                <span class="s1">password = quoter(password)</span>
+            <span class="s1">user = user + </span><span class="s2">&quot;:&quot; </span><span class="s1">+ password</span>
+        <span class="s0">elif </span><span class="s1">user </span><span class="s0">and </span><span class="s1">encode:</span>
+            <span class="s1">user = quoter(user)</span>
+        <span class="s0">if </span><span class="s1">user:</span>
+            <span class="s1">ret = user + </span><span class="s2">&quot;@&quot; </span><span class="s1">+ ret</span>
+        <span class="s0">return </span><span class="s1">ret</span>
+
+    <span class="s0">def </span><span class="s1">with_scheme(self</span><span class="s0">, </span><span class="s1">scheme):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new URL with scheme replaced.&quot;&quot;&quot;</span>
+        <span class="s5"># N.B. doesn't cleanup query/fragment</span>
+        <span class="s0">if not </span><span class="s1">isinstance(scheme</span><span class="s0">, </span><span class="s1">str):</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span><span class="s2">&quot;Invalid scheme type&quot;</span><span class="s1">)</span>
+        <span class="s0">if not </span><span class="s1">self.is_absolute():</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;scheme replacement is not allowed for relative URLs&quot;</span><span class="s1">)</span>
+        <span class="s0">return </span><span class="s1">URL(self._val._replace(scheme=scheme.lower())</span><span class="s0">, </span><span class="s1">encoded=</span><span class="s0">True</span><span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">with_user(self</span><span class="s0">, </span><span class="s1">user):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new URL with user replaced. 
+ 
+        Autoencode user if needed. 
+ 
+        Clear user/password if user is None. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s5"># N.B. doesn't cleanup query/fragment</span>
+        <span class="s1">val = self._val</span>
+        <span class="s0">if </span><span class="s1">user </span><span class="s0">is None</span><span class="s1">:</span>
+            <span class="s1">password = </span><span class="s0">None</span>
+        <span class="s0">elif </span><span class="s1">isinstance(user</span><span class="s0">, </span><span class="s1">str):</span>
+            <span class="s1">user = self._QUOTER(user)</span>
+            <span class="s1">password = val.password</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span><span class="s2">&quot;Invalid user type&quot;</span><span class="s1">)</span>
+        <span class="s0">if not </span><span class="s1">self.is_absolute():</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;user replacement is not allowed for relative URLs&quot;</span><span class="s1">)</span>
+        <span class="s0">return </span><span class="s1">URL(</span>
+            <span class="s1">self._val._replace(</span>
+                <span class="s1">netloc=self._make_netloc(user</span><span class="s0">, </span><span class="s1">password</span><span class="s0">, </span><span class="s1">val.hostname</span><span class="s0">, </span><span class="s1">val.port)</span>
+            <span class="s1">)</span><span class="s0">,</span>
+            <span class="s1">encoded=</span><span class="s0">True,</span>
+        <span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">with_password(self</span><span class="s0">, </span><span class="s1">password):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new URL with password replaced. 
+ 
+        Autoencode password if needed. 
+ 
+        Clear password if argument is None. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s5"># N.B. doesn't cleanup query/fragment</span>
+        <span class="s0">if </span><span class="s1">password </span><span class="s0">is None</span><span class="s1">:</span>
+            <span class="s0">pass</span>
+        <span class="s0">elif </span><span class="s1">isinstance(password</span><span class="s0">, </span><span class="s1">str):</span>
+            <span class="s1">password = self._QUOTER(password)</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span><span class="s2">&quot;Invalid password type&quot;</span><span class="s1">)</span>
+        <span class="s0">if not </span><span class="s1">self.is_absolute():</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;password replacement is not allowed for relative URLs&quot;</span><span class="s1">)</span>
+        <span class="s1">val = self._val</span>
+        <span class="s0">return </span><span class="s1">URL(</span>
+            <span class="s1">self._val._replace(</span>
+                <span class="s1">netloc=self._make_netloc(val.username</span><span class="s0">, </span><span class="s1">password</span><span class="s0">, </span><span class="s1">val.hostname</span><span class="s0">, </span><span class="s1">val.port)</span>
+            <span class="s1">)</span><span class="s0">,</span>
+            <span class="s1">encoded=</span><span class="s0">True,</span>
+        <span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">with_host(self</span><span class="s0">, </span><span class="s1">host):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new URL with host replaced. 
+ 
+        Autoencode host if needed. 
+ 
+        Changing host for relative URLs is not allowed, use .join() 
+        instead. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s5"># N.B. doesn't cleanup query/fragment</span>
+        <span class="s0">if not </span><span class="s1">isinstance(host</span><span class="s0">, </span><span class="s1">str):</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span><span class="s2">&quot;Invalid host type&quot;</span><span class="s1">)</span>
+        <span class="s0">if not </span><span class="s1">self.is_absolute():</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;host replacement is not allowed for relative URLs&quot;</span><span class="s1">)</span>
+        <span class="s0">if not </span><span class="s1">host:</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;host removing is not allowed&quot;</span><span class="s1">)</span>
+        <span class="s1">val = self._val</span>
+        <span class="s0">return </span><span class="s1">URL(</span>
+            <span class="s1">self._val._replace(</span>
+                <span class="s1">netloc=self._make_netloc(val.username</span><span class="s0">, </span><span class="s1">val.password</span><span class="s0">, </span><span class="s1">host</span><span class="s0">, </span><span class="s1">val.port)</span>
+            <span class="s1">)</span><span class="s0">,</span>
+            <span class="s1">encoded=</span><span class="s0">True,</span>
+        <span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">with_port(self</span><span class="s0">, </span><span class="s1">port):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new URL with port replaced. 
+ 
+        Clear port to default if None is passed. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s5"># N.B. doesn't cleanup query/fragment</span>
+        <span class="s0">if </span><span class="s1">port </span><span class="s0">is not None and not </span><span class="s1">isinstance(port</span><span class="s0">, </span><span class="s1">int):</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span><span class="s2">f&quot;port should be int or None, got </span><span class="s0">{</span><span class="s1">type(port)</span><span class="s0">}</span><span class="s2">&quot;</span><span class="s1">)</span>
+        <span class="s0">if not </span><span class="s1">self.is_absolute():</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;port replacement is not allowed for relative URLs&quot;</span><span class="s1">)</span>
+        <span class="s1">val = self._val</span>
+        <span class="s0">return </span><span class="s1">URL(</span>
+            <span class="s1">self._val._replace(</span>
+                <span class="s1">netloc=self._make_netloc(val.username</span><span class="s0">, </span><span class="s1">val.password</span><span class="s0">, </span><span class="s1">val.hostname</span><span class="s0">, </span><span class="s1">port)</span>
+            <span class="s1">)</span><span class="s0">,</span>
+            <span class="s1">encoded=</span><span class="s0">True,</span>
+        <span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">with_path(self</span><span class="s0">, </span><span class="s1">path</span><span class="s0">, </span><span class="s1">*</span><span class="s0">, </span><span class="s1">encoded=</span><span class="s0">False</span><span class="s1">):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new URL with path replaced.&quot;&quot;&quot;</span>
+        <span class="s0">if not </span><span class="s1">encoded:</span>
+            <span class="s1">path = self._PATH_QUOTER(path)</span>
+            <span class="s0">if </span><span class="s1">self.is_absolute():</span>
+                <span class="s1">path = self._normalize_path(path)</span>
+        <span class="s0">if </span><span class="s1">len(path) &gt; </span><span class="s3">0 </span><span class="s0">and </span><span class="s1">path[</span><span class="s3">0</span><span class="s1">] != </span><span class="s2">&quot;/&quot;</span><span class="s1">:</span>
+            <span class="s1">path = </span><span class="s2">&quot;/&quot; </span><span class="s1">+ path</span>
+        <span class="s0">return </span><span class="s1">URL(self._val._replace(path=path</span><span class="s0">, </span><span class="s1">query=</span><span class="s2">&quot;&quot;</span><span class="s0">, </span><span class="s1">fragment=</span><span class="s2">&quot;&quot;</span><span class="s1">)</span><span class="s0">, </span><span class="s1">encoded=</span><span class="s0">True</span><span class="s1">)</span>
+
+    <span class="s1">@classmethod</span>
+    <span class="s0">def </span><span class="s1">_query_seq_pairs(cls</span><span class="s0">, </span><span class="s1">quoter</span><span class="s0">, </span><span class="s1">pairs):</span>
+        <span class="s0">for </span><span class="s1">key</span><span class="s0">, </span><span class="s1">val </span><span class="s0">in </span><span class="s1">pairs:</span>
+            <span class="s0">if </span><span class="s1">isinstance(val</span><span class="s0">, </span><span class="s1">(list</span><span class="s0">, </span><span class="s1">tuple)):</span>
+                <span class="s0">for </span><span class="s1">v </span><span class="s0">in </span><span class="s1">val:</span>
+                    <span class="s0">yield </span><span class="s1">quoter(key) + </span><span class="s2">&quot;=&quot; </span><span class="s1">+ quoter(cls._query_var(v))</span>
+            <span class="s0">else</span><span class="s1">:</span>
+                <span class="s0">yield </span><span class="s1">quoter(key) + </span><span class="s2">&quot;=&quot; </span><span class="s1">+ quoter(cls._query_var(val))</span>
+
+    <span class="s1">@staticmethod</span>
+    <span class="s0">def </span><span class="s1">_query_var(v):</span>
+        <span class="s1">cls = type(v)</span>
+        <span class="s0">if </span><span class="s1">issubclass(cls</span><span class="s0">, </span><span class="s1">str):</span>
+            <span class="s0">return </span><span class="s1">v</span>
+        <span class="s0">if </span><span class="s1">issubclass(cls</span><span class="s0">, </span><span class="s1">float):</span>
+            <span class="s0">if </span><span class="s1">math.isinf(v):</span>
+                <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;float('inf') is not supported&quot;</span><span class="s1">)</span>
+            <span class="s0">if </span><span class="s1">math.isnan(v):</span>
+                <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;float('nan') is not supported&quot;</span><span class="s1">)</span>
+            <span class="s0">return </span><span class="s1">str(float(v))</span>
+        <span class="s0">if </span><span class="s1">issubclass(cls</span><span class="s0">, </span><span class="s1">int) </span><span class="s0">and </span><span class="s1">cls </span><span class="s0">is not </span><span class="s1">bool:</span>
+            <span class="s0">return </span><span class="s1">str(int(v))</span>
+        <span class="s0">raise </span><span class="s1">TypeError(</span>
+            <span class="s2">&quot;Invalid variable type: value &quot;</span>
+            <span class="s2">&quot;should be str, int or float, got {!r} &quot;</span>
+            <span class="s2">&quot;of type {}&quot;</span><span class="s1">.format(v</span><span class="s0">, </span><span class="s1">cls)</span>
+        <span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">_get_str_query(self</span><span class="s0">, </span><span class="s1">*args</span><span class="s0">, </span><span class="s1">**kwargs):</span>
+        <span class="s0">if </span><span class="s1">kwargs:</span>
+            <span class="s0">if </span><span class="s1">len(args) &gt; </span><span class="s3">0</span><span class="s1">:</span>
+                <span class="s0">raise </span><span class="s1">ValueError(</span>
+                    <span class="s2">&quot;Either kwargs or single query parameter must be present&quot;</span>
+                <span class="s1">)</span>
+            <span class="s1">query = kwargs</span>
+        <span class="s0">elif </span><span class="s1">len(args) == </span><span class="s3">1</span><span class="s1">:</span>
+            <span class="s1">query = args[</span><span class="s3">0</span><span class="s1">]</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;Either kwargs or single query parameter must be present&quot;</span><span class="s1">)</span>
+
+        <span class="s0">if </span><span class="s1">query </span><span class="s0">is None</span><span class="s1">:</span>
+            <span class="s1">query = </span><span class="s2">&quot;&quot;</span>
+        <span class="s0">elif </span><span class="s1">isinstance(query</span><span class="s0">, </span><span class="s1">Mapping):</span>
+            <span class="s1">quoter = self._QUERY_PART_QUOTER</span>
+            <span class="s1">query = </span><span class="s2">&quot;&amp;&quot;</span><span class="s1">.join(self._query_seq_pairs(quoter</span><span class="s0">, </span><span class="s1">query.items()))</span>
+        <span class="s0">elif </span><span class="s1">isinstance(query</span><span class="s0">, </span><span class="s1">str):</span>
+            <span class="s1">query = self._QUERY_QUOTER(query)</span>
+        <span class="s0">elif </span><span class="s1">isinstance(query</span><span class="s0">, </span><span class="s1">(bytes</span><span class="s0">, </span><span class="s1">bytearray</span><span class="s0">, </span><span class="s1">memoryview)):</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span>
+                <span class="s2">&quot;Invalid query type: bytes, bytearray and memoryview are forbidden&quot;</span>
+            <span class="s1">)</span>
+        <span class="s0">elif </span><span class="s1">isinstance(query</span><span class="s0">, </span><span class="s1">Sequence):</span>
+            <span class="s1">quoter = self._QUERY_PART_QUOTER</span>
+            <span class="s5"># We don't expect sequence values if we're given a list of pairs</span>
+            <span class="s5"># already; only mappings like builtin `dict` which can't have the</span>
+            <span class="s5"># same key pointing to multiple values are allowed to use</span>
+            <span class="s5"># `_query_seq_pairs`.</span>
+            <span class="s1">query = </span><span class="s2">&quot;&amp;&quot;</span><span class="s1">.join(</span>
+                <span class="s1">quoter(k) + </span><span class="s2">&quot;=&quot; </span><span class="s1">+ quoter(self._query_var(v)) </span><span class="s0">for </span><span class="s1">k</span><span class="s0">, </span><span class="s1">v </span><span class="s0">in </span><span class="s1">query</span>
+            <span class="s1">)</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span>
+                <span class="s2">&quot;Invalid query type: only str, mapping or &quot;</span>
+                <span class="s2">&quot;sequence of (key, value) pairs is allowed&quot;</span>
+            <span class="s1">)</span>
+
+        <span class="s0">return </span><span class="s1">query</span>
+
+    <span class="s0">def </span><span class="s1">with_query(self</span><span class="s0">, </span><span class="s1">*args</span><span class="s0">, </span><span class="s1">**kwargs):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new URL with query part replaced. 
+ 
+        Accepts any Mapping (e.g. dict, multidict.MultiDict instances) 
+        or str, autoencode the argument if needed. 
+ 
+        A sequence of (key, value) pairs is supported as well. 
+ 
+        It also can take an arbitrary number of keyword arguments. 
+ 
+        Clear query if None is passed. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s5"># N.B. doesn't cleanup query/fragment</span>
+
+        <span class="s1">new_query = self._get_str_query(*args</span><span class="s0">, </span><span class="s1">**kwargs)</span>
+        <span class="s0">return </span><span class="s1">URL(</span>
+            <span class="s1">self._val._replace(path=self._val.path</span><span class="s0">, </span><span class="s1">query=new_query)</span><span class="s0">, </span><span class="s1">encoded=</span><span class="s0">True</span>
+        <span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">update_query(self</span><span class="s0">, </span><span class="s1">*args</span><span class="s0">, </span><span class="s1">**kwargs):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new URL with query part updated.&quot;&quot;&quot;</span>
+        <span class="s1">s = self._get_str_query(*args</span><span class="s0">, </span><span class="s1">**kwargs)</span>
+        <span class="s1">new_query = MultiDict(parse_qsl(s</span><span class="s0">, </span><span class="s1">keep_blank_values=</span><span class="s0">True</span><span class="s1">))</span>
+        <span class="s1">query = MultiDict(self.query)</span>
+        <span class="s1">query.update(new_query)</span>
+
+        <span class="s0">return </span><span class="s1">URL(self._val._replace(query=self._get_str_query(query))</span><span class="s0">, </span><span class="s1">encoded=</span><span class="s0">True</span><span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">with_fragment(self</span><span class="s0">, </span><span class="s1">fragment):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new URL with fragment replaced. 
+ 
+        Autoencode fragment if needed. 
+ 
+        Clear fragment to default if None is passed. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s5"># N.B. doesn't cleanup query/fragment</span>
+        <span class="s0">if </span><span class="s1">fragment </span><span class="s0">is None</span><span class="s1">:</span>
+            <span class="s1">raw_fragment = </span><span class="s2">&quot;&quot;</span>
+        <span class="s0">elif not </span><span class="s1">isinstance(fragment</span><span class="s0">, </span><span class="s1">str):</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span><span class="s2">&quot;Invalid fragment type&quot;</span><span class="s1">)</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s1">raw_fragment = self._FRAGMENT_QUOTER(fragment)</span>
+        <span class="s0">if </span><span class="s1">self.raw_fragment == raw_fragment:</span>
+            <span class="s0">return </span><span class="s1">self</span>
+        <span class="s0">return </span><span class="s1">URL(self._val._replace(fragment=raw_fragment)</span><span class="s0">, </span><span class="s1">encoded=</span><span class="s0">True</span><span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">with_name(self</span><span class="s0">, </span><span class="s1">name):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new URL with name (last part of path) replaced. 
+ 
+        Query and fragment parts are cleaned up. 
+ 
+        Name is encoded if needed. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s5"># N.B. DOES cleanup query/fragment</span>
+        <span class="s0">if not </span><span class="s1">isinstance(name</span><span class="s0">, </span><span class="s1">str):</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span><span class="s2">&quot;Invalid name type&quot;</span><span class="s1">)</span>
+        <span class="s0">if </span><span class="s2">&quot;/&quot; </span><span class="s0">in </span><span class="s1">name:</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;Slash in name is not allowed&quot;</span><span class="s1">)</span>
+        <span class="s1">name = self._PATH_QUOTER(name)</span>
+        <span class="s0">if </span><span class="s1">name </span><span class="s0">in </span><span class="s1">(</span><span class="s2">&quot;.&quot;</span><span class="s0">, </span><span class="s2">&quot;..&quot;</span><span class="s1">):</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">&quot;. and .. values are forbidden&quot;</span><span class="s1">)</span>
+        <span class="s1">parts = list(self.raw_parts)</span>
+        <span class="s0">if </span><span class="s1">self.is_absolute():</span>
+            <span class="s0">if </span><span class="s1">len(parts) == </span><span class="s3">1</span><span class="s1">:</span>
+                <span class="s1">parts.append(name)</span>
+            <span class="s0">else</span><span class="s1">:</span>
+                <span class="s1">parts[-</span><span class="s3">1</span><span class="s1">] = name</span>
+            <span class="s1">parts[</span><span class="s3">0</span><span class="s1">] = </span><span class="s2">&quot;&quot;  </span><span class="s5"># replace leading '/'</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s1">parts[-</span><span class="s3">1</span><span class="s1">] = name</span>
+            <span class="s0">if </span><span class="s1">parts[</span><span class="s3">0</span><span class="s1">] == </span><span class="s2">&quot;/&quot;</span><span class="s1">:</span>
+                <span class="s1">parts[</span><span class="s3">0</span><span class="s1">] = </span><span class="s2">&quot;&quot;  </span><span class="s5"># replace leading '/'</span>
+        <span class="s0">return </span><span class="s1">URL(</span>
+            <span class="s1">self._val._replace(path=</span><span class="s2">&quot;/&quot;</span><span class="s1">.join(parts)</span><span class="s0">, </span><span class="s1">query=</span><span class="s2">&quot;&quot;</span><span class="s0">, </span><span class="s1">fragment=</span><span class="s2">&quot;&quot;</span><span class="s1">)</span><span class="s0">,</span>
+            <span class="s1">encoded=</span><span class="s0">True,</span>
+        <span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">with_suffix(self</span><span class="s0">, </span><span class="s1">suffix):</span>
+        <span class="s4">&quot;&quot;&quot;Return a new URL with suffix (file extension of name) replaced. 
+ 
+        Query and fragment parts are cleaned up. 
+ 
+        suffix is encoded if needed. 
+        &quot;&quot;&quot;</span>
+        <span class="s0">if not </span><span class="s1">isinstance(suffix</span><span class="s0">, </span><span class="s1">str):</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span><span class="s2">&quot;Invalid suffix type&quot;</span><span class="s1">)</span>
+        <span class="s0">if </span><span class="s1">suffix </span><span class="s0">and not </span><span class="s1">suffix.startswith(</span><span class="s2">&quot;.&quot;</span><span class="s1">) </span><span class="s0">or </span><span class="s1">suffix == </span><span class="s2">&quot;.&quot;</span><span class="s1">:</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">f&quot;Invalid suffix </span><span class="s0">{</span><span class="s1">suffix</span><span class="s0">!r}</span><span class="s2">&quot;</span><span class="s1">)</span>
+        <span class="s1">name = self.raw_name</span>
+        <span class="s0">if not </span><span class="s1">name:</span>
+            <span class="s0">raise </span><span class="s1">ValueError(</span><span class="s2">f&quot;</span><span class="s0">{</span><span class="s1">self</span><span class="s0">!r} </span><span class="s2">has an empty name&quot;</span><span class="s1">)</span>
+        <span class="s1">old_suffix = self.raw_suffix</span>
+        <span class="s0">if not </span><span class="s1">old_suffix:</span>
+            <span class="s1">name = name + suffix</span>
+        <span class="s0">else</span><span class="s1">:</span>
+            <span class="s1">name = name[: -len(old_suffix)] + suffix</span>
+        <span class="s0">return </span><span class="s1">self.with_name(name)</span>
+
+    <span class="s0">def </span><span class="s1">join(self</span><span class="s0">, </span><span class="s1">url):</span>
+        <span class="s4">&quot;&quot;&quot;Join URLs 
+ 
+        Construct a full (“absolute”) URL by combining a “base URL” 
+        (self) with another URL (url). 
+ 
+        Informally, this uses components of the base URL, in 
+        particular the addressing scheme, the network location and 
+        (part of) the path, to provide missing components in the 
+        relative URL. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s5"># See docs for urllib.parse.urljoin</span>
+        <span class="s0">if not </span><span class="s1">isinstance(url</span><span class="s0">, </span><span class="s1">URL):</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span><span class="s2">&quot;url should be URL&quot;</span><span class="s1">)</span>
+        <span class="s0">return </span><span class="s1">URL(urljoin(str(self)</span><span class="s0">, </span><span class="s1">str(url))</span><span class="s0">, </span><span class="s1">encoded=</span><span class="s0">True</span><span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">human_repr(self):</span>
+        <span class="s4">&quot;&quot;&quot;Return decoded human readable string for URL representation.&quot;&quot;&quot;</span>
+        <span class="s1">user = _human_quote(self.user</span><span class="s0">, </span><span class="s2">&quot;#/:?@&quot;</span><span class="s1">)</span>
+        <span class="s1">password = _human_quote(self.password</span><span class="s0">, </span><span class="s2">&quot;#/:?@&quot;</span><span class="s1">)</span>
+        <span class="s1">host = self.host</span>
+        <span class="s0">if </span><span class="s1">host:</span>
+            <span class="s1">host = self._encode_host(self.host</span><span class="s0">, </span><span class="s1">human=</span><span class="s0">True</span><span class="s1">)</span>
+        <span class="s1">path = _human_quote(self.path</span><span class="s0">, </span><span class="s2">&quot;#?&quot;</span><span class="s1">)</span>
+        <span class="s1">query_string = </span><span class="s2">&quot;&amp;&quot;</span><span class="s1">.join(</span>
+            <span class="s2">&quot;{}={}&quot;</span><span class="s1">.format(_human_quote(k</span><span class="s0">, </span><span class="s2">&quot;#&amp;+;=&quot;</span><span class="s1">)</span><span class="s0">, </span><span class="s1">_human_quote(v</span><span class="s0">, </span><span class="s2">&quot;#&amp;+;=&quot;</span><span class="s1">))</span>
+            <span class="s0">for </span><span class="s1">k</span><span class="s0">, </span><span class="s1">v </span><span class="s0">in </span><span class="s1">self.query.items()</span>
+        <span class="s1">)</span>
+        <span class="s1">fragment = _human_quote(self.fragment</span><span class="s0">, </span><span class="s2">&quot;&quot;</span><span class="s1">)</span>
+        <span class="s0">return </span><span class="s1">urlunsplit(</span>
+            <span class="s1">SplitResult(</span>
+                <span class="s1">self.scheme</span><span class="s0">,</span>
+                <span class="s1">self._make_netloc(</span>
+                    <span class="s1">user</span><span class="s0">,</span>
+                    <span class="s1">password</span><span class="s0">,</span>
+                    <span class="s1">host</span><span class="s0">,</span>
+                    <span class="s1">self._val.port</span><span class="s0">,</span>
+                    <span class="s1">encode_host=</span><span class="s0">False,</span>
+                <span class="s1">)</span><span class="s0">,</span>
+                <span class="s1">path</span><span class="s0">,</span>
+                <span class="s1">query_string</span><span class="s0">,</span>
+                <span class="s1">fragment</span><span class="s0">,</span>
+            <span class="s1">)</span>
+        <span class="s1">)</span>
+
+
+<span class="s0">def </span><span class="s1">_human_quote(s</span><span class="s0">, </span><span class="s1">unsafe):</span>
+    <span class="s0">if not </span><span class="s1">s:</span>
+        <span class="s0">return </span><span class="s1">s</span>
+    <span class="s0">for </span><span class="s1">c </span><span class="s0">in </span><span class="s2">&quot;%&quot; </span><span class="s1">+ unsafe:</span>
+        <span class="s0">if </span><span class="s1">c </span><span class="s0">in </span><span class="s1">s:</span>
+            <span class="s1">s = s.replace(c</span><span class="s0">, </span><span class="s2">f&quot;%</span><span class="s0">{</span><span class="s1">ord(c)</span><span class="s0">:</span><span class="s2">02X</span><span class="s0">}</span><span class="s2">&quot;</span><span class="s1">)</span>
+    <span class="s0">if </span><span class="s1">s.isprintable():</span>
+        <span class="s0">return </span><span class="s1">s</span>
+    <span class="s0">return </span><span class="s2">&quot;&quot;</span><span class="s1">.join(c </span><span class="s0">if </span><span class="s1">c.isprintable() </span><span class="s0">else </span><span class="s1">quote(c) </span><span class="s0">for </span><span class="s1">c </span><span class="s0">in </span><span class="s1">s)</span>
+
+
+<span class="s1">_MAXCACHE = </span><span class="s3">256</span>
+
+
+<span class="s1">@functools.lru_cache(_MAXCACHE)</span>
+<span class="s0">def </span><span class="s1">_idna_decode(raw):</span>
+    <span class="s0">try</span><span class="s1">:</span>
+        <span class="s0">return </span><span class="s1">idna.decode(raw.encode(</span><span class="s2">&quot;ascii&quot;</span><span class="s1">))</span>
+    <span class="s0">except </span><span class="s1">UnicodeError:  </span><span class="s5"># e.g. '::1'</span>
+        <span class="s0">return </span><span class="s1">raw.encode(</span><span class="s2">&quot;ascii&quot;</span><span class="s1">).decode(</span><span class="s2">&quot;idna&quot;</span><span class="s1">)</span>
+
+
+<span class="s1">@functools.lru_cache(_MAXCACHE)</span>
+<span class="s0">def </span><span class="s1">_idna_encode(host):</span>
+    <span class="s0">try</span><span class="s1">:</span>
+        <span class="s0">return </span><span class="s1">idna.encode(host</span><span class="s0">, </span><span class="s1">uts46=</span><span class="s0">True</span><span class="s1">).decode(</span><span class="s2">&quot;ascii&quot;</span><span class="s1">)</span>
+    <span class="s0">except </span><span class="s1">UnicodeError:</span>
+        <span class="s0">return </span><span class="s1">host.encode(</span><span class="s2">&quot;idna&quot;</span><span class="s1">).decode(</span><span class="s2">&quot;ascii&quot;</span><span class="s1">)</span>
+
+
+<span class="s1">@rewrite_module</span>
+<span class="s0">def </span><span class="s1">cache_clear():</span>
+    <span class="s1">_idna_decode.cache_clear()</span>
+    <span class="s1">_idna_encode.cache_clear()</span>
+
+
+<span class="s1">@rewrite_module</span>
+<span class="s0">def </span><span class="s1">cache_info():</span>
+    <span class="s0">return </span><span class="s1">{</span>
+        <span class="s2">&quot;idna_encode&quot;</span><span class="s1">: _idna_encode.cache_info()</span><span class="s0">,</span>
+        <span class="s2">&quot;idna_decode&quot;</span><span class="s1">: _idna_decode.cache_info()</span><span class="s0">,</span>
+    <span class="s1">}</span>
+
+
+<span class="s1">@rewrite_module</span>
+<span class="s0">def </span><span class="s1">cache_configure(*</span><span class="s0">, </span><span class="s1">idna_encode_size=_MAXCACHE</span><span class="s0">, </span><span class="s1">idna_decode_size=_MAXCACHE):</span>
+    <span class="s0">global </span><span class="s1">_idna_decode</span><span class="s0">, </span><span class="s1">_idna_encode</span>
+
+    <span class="s1">_idna_encode = functools.lru_cache(idna_encode_size)(_idna_encode.__wrapped__)</span>
+    <span class="s1">_idna_decode = functools.lru_cache(idna_decode_size)(_idna_decode.__wrapped__)</span>
+</pre>
+</body>
+</html>

@@ -1,0 +1,32 @@
+<html>
+<head>
+<title>_utils.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cc7832;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #808080;}
+.s3 { color: #6a8759;}
+.s4 { color: #6897bb;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_utils.py</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">warnings </span><span class="s0">import </span><span class="s1">warn</span>
+
+<span class="s0">from </span><span class="s1">.std </span><span class="s0">import </span><span class="s1">TqdmDeprecationWarning</span>
+<span class="s0">from </span><span class="s1">.utils </span><span class="s0">import </span><span class="s1">(  </span><span class="s2"># NOQA, pylint: disable=unused-import</span>
+    <span class="s1">CUR_OS</span><span class="s0">, </span><span class="s1">IS_NIX</span><span class="s0">, </span><span class="s1">IS_WIN</span><span class="s0">, </span><span class="s1">RE_ANSI</span><span class="s0">, </span><span class="s1">Comparable</span><span class="s0">, </span><span class="s1">FormatReplace</span><span class="s0">, </span><span class="s1">SimpleTextIOWrapper</span><span class="s0">,</span>
+    <span class="s1">_environ_cols_wrapper</span><span class="s0">, </span><span class="s1">_is_ascii</span><span class="s0">, </span><span class="s1">_is_utf</span><span class="s0">, </span><span class="s1">_screen_shape_linux</span><span class="s0">, </span><span class="s1">_screen_shape_tput</span><span class="s0">,</span>
+    <span class="s1">_screen_shape_windows</span><span class="s0">, </span><span class="s1">_screen_shape_wrapper</span><span class="s0">, </span><span class="s1">_supports_unicode</span><span class="s0">, </span><span class="s1">_term_move_up</span><span class="s0">, </span><span class="s1">colorama)</span>
+
+<span class="s1">warn(</span><span class="s3">&quot;This function will be removed in tqdm==5.0.0</span><span class="s0">\n</span><span class="s3">&quot;</span>
+     <span class="s3">&quot;Please use `tqdm.utils.*` instead of `tqdm._utils.*`&quot;</span><span class="s0">,</span>
+     <span class="s1">TqdmDeprecationWarning</span><span class="s0">, </span><span class="s1">stacklevel=</span><span class="s4">2</span><span class="s1">)</span>
+</pre>
+</body>
+</html>

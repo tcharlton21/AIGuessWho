@@ -1,0 +1,45 @@
+<html>
+<head>
+<title>_tqdm_pandas.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cc7832;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #6a8759;}
+.s3 { color: #629755; font-style: italic;}
+.s4 { color: #808080;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_tqdm_pandas.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">sys</span>
+
+<span class="s1">__author__ = </span><span class="s2">&quot;github.com/casperdcl&quot;</span>
+<span class="s1">__all__ = [</span><span class="s2">'tqdm_pandas'</span><span class="s1">]</span>
+
+
+<span class="s0">def </span><span class="s1">tqdm_pandas(tclass</span><span class="s0">, </span><span class="s1">**tqdm_kwargs):</span>
+    <span class="s3">&quot;&quot;&quot; 
+    Registers the given `tqdm` instance with 
+    `pandas.core.groupby.DataFrameGroupBy.progress_apply`. 
+    &quot;&quot;&quot;</span>
+    <span class="s0">from </span><span class="s1">tqdm </span><span class="s0">import </span><span class="s1">TqdmDeprecationWarning</span>
+
+    <span class="s0">if </span><span class="s1">isinstance(tclass</span><span class="s0">, </span><span class="s1">type) </span><span class="s0">or </span><span class="s1">(getattr(tclass</span><span class="s0">, </span><span class="s2">'__name__'</span><span class="s0">, </span><span class="s2">''</span><span class="s1">).startswith(</span>
+            <span class="s2">'tqdm_'</span><span class="s1">)):  </span><span class="s4"># delayed adapter case</span>
+        <span class="s1">TqdmDeprecationWarning(</span>
+            <span class="s2">&quot;Please use `tqdm.pandas(...)` instead of `tqdm_pandas(tqdm, ...)`.&quot;</span><span class="s0">,</span>
+            <span class="s1">fp_write=getattr(tqdm_kwargs.get(</span><span class="s2">'file'</span><span class="s0">, None</span><span class="s1">)</span><span class="s0">, </span><span class="s2">'write'</span><span class="s0">, </span><span class="s1">sys.stderr.write))</span>
+        <span class="s1">tclass.pandas(**tqdm_kwargs)</span>
+    <span class="s0">else</span><span class="s1">:</span>
+        <span class="s1">TqdmDeprecationWarning(</span>
+            <span class="s2">&quot;Please use `tqdm.pandas(...)` instead of `tqdm_pandas(tqdm(...))`.&quot;</span><span class="s0">,</span>
+            <span class="s1">fp_write=getattr(tclass.fp</span><span class="s0">, </span><span class="s2">'write'</span><span class="s0">, </span><span class="s1">sys.stderr.write))</span>
+        <span class="s1">type(tclass).pandas(deprecated_t=tclass)</span>
+</pre>
+</body>
+</html>

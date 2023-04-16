@@ -1,0 +1,147 @@
+<html>
+<head>
+<title>logging.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #629755; font-style: italic;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #cc7832;}
+.s3 { color: #808080;}
+.s4 { color: #6a8759;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+logging.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+Helper functionality for interoperability with stdlib `logging`. 
+&quot;&quot;&quot;</span>
+<span class="s2">import </span><span class="s1">logging</span>
+<span class="s2">import </span><span class="s1">sys</span>
+<span class="s2">from </span><span class="s1">contextlib </span><span class="s2">import </span><span class="s1">contextmanager</span>
+
+<span class="s2">try</span><span class="s1">:</span>
+    <span class="s2">from </span><span class="s1">typing </span><span class="s2">import </span><span class="s1">Iterator</span><span class="s2">, </span><span class="s1">List</span><span class="s2">, </span><span class="s1">Optional</span><span class="s2">, </span><span class="s1">Type  </span><span class="s3"># pylint: disable=unused-import</span>
+<span class="s2">except </span><span class="s1">ImportError:</span>
+    <span class="s2">pass</span>
+
+<span class="s2">from </span><span class="s1">..std </span><span class="s2">import </span><span class="s1">tqdm </span><span class="s2">as </span><span class="s1">std_tqdm</span>
+
+
+<span class="s2">class </span><span class="s1">_TqdmLoggingHandler(logging.StreamHandler):</span>
+    <span class="s2">def </span><span class="s1">__init__(</span>
+        <span class="s1">self</span><span class="s2">,</span>
+        <span class="s1">tqdm_class=std_tqdm  </span><span class="s3"># type: Type[std_tqdm]</span>
+    <span class="s1">):</span>
+        <span class="s1">super(_TqdmLoggingHandler</span><span class="s2">, </span><span class="s1">self).__init__()</span>
+        <span class="s1">self.tqdm_class = tqdm_class</span>
+
+    <span class="s2">def </span><span class="s1">emit(self</span><span class="s2">, </span><span class="s1">record):</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">msg = self.format(record)</span>
+            <span class="s1">self.tqdm_class.write(msg</span><span class="s2">, </span><span class="s1">file=self.stream)</span>
+            <span class="s1">self.flush()</span>
+        <span class="s2">except </span><span class="s1">(KeyboardInterrupt</span><span class="s2">, </span><span class="s1">SystemExit):</span>
+            <span class="s2">raise</span>
+        <span class="s2">except</span><span class="s1">:  </span><span class="s3"># noqa pylint: disable=bare-except</span>
+            <span class="s1">self.handleError(record)</span>
+
+
+<span class="s2">def </span><span class="s1">_is_console_logging_handler(handler):</span>
+    <span class="s2">return </span><span class="s1">(isinstance(handler</span><span class="s2">, </span><span class="s1">logging.StreamHandler)</span>
+            <span class="s2">and </span><span class="s1">handler.stream </span><span class="s2">in </span><span class="s1">{sys.stdout</span><span class="s2">, </span><span class="s1">sys.stderr})</span>
+
+
+<span class="s2">def </span><span class="s1">_get_first_found_console_logging_handler(handlers):</span>
+    <span class="s2">for </span><span class="s1">handler </span><span class="s2">in </span><span class="s1">handlers:</span>
+        <span class="s2">if </span><span class="s1">_is_console_logging_handler(handler):</span>
+            <span class="s2">return </span><span class="s1">handler</span>
+
+
+<span class="s1">@contextmanager</span>
+<span class="s2">def </span><span class="s1">logging_redirect_tqdm(</span>
+    <span class="s1">loggers=</span><span class="s2">None,  </span><span class="s3"># type: Optional[List[logging.Logger]],</span>
+    <span class="s1">tqdm_class=std_tqdm  </span><span class="s3"># type: Type[std_tqdm]</span>
+<span class="s1">):</span>
+    <span class="s3"># type: (...) -&gt; Iterator[None]</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Context manager redirecting console logging to `tqdm.write()`, leaving 
+    other logging handlers (e.g. log files) unaffected. 
+ 
+    Parameters 
+    ---------- 
+    loggers  : list, optional 
+      Which handlers to redirect (default: [logging.root]). 
+    tqdm_class  : optional 
+ 
+    Example 
+    ------- 
+    ```python 
+    import logging 
+    from tqdm import trange 
+    from tqdm.contrib.logging import logging_redirect_tqdm 
+ 
+    LOG = logging.getLogger(__name__) 
+ 
+    if __name__ == '__main__': 
+        logging.basicConfig(level=logging.INFO) 
+        with logging_redirect_tqdm(): 
+            for i in trange(9): 
+                if i == 4: 
+                    LOG.info(&quot;console logging redirected to `tqdm.write()`&quot;) 
+        # logging restored 
+    ``` 
+    &quot;&quot;&quot;</span>
+    <span class="s2">if </span><span class="s1">loggers </span><span class="s2">is None</span><span class="s1">:</span>
+        <span class="s1">loggers = [logging.root]</span>
+    <span class="s1">original_handlers_list = [logger.handlers </span><span class="s2">for </span><span class="s1">logger </span><span class="s2">in </span><span class="s1">loggers]</span>
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s2">for </span><span class="s1">logger </span><span class="s2">in </span><span class="s1">loggers:</span>
+            <span class="s1">tqdm_handler = _TqdmLoggingHandler(tqdm_class)</span>
+            <span class="s1">orig_handler = _get_first_found_console_logging_handler(logger.handlers)</span>
+            <span class="s2">if </span><span class="s1">orig_handler </span><span class="s2">is not None</span><span class="s1">:</span>
+                <span class="s1">tqdm_handler.setFormatter(orig_handler.formatter)</span>
+                <span class="s1">tqdm_handler.stream = orig_handler.stream</span>
+            <span class="s1">logger.handlers = [</span>
+                <span class="s1">handler </span><span class="s2">for </span><span class="s1">handler </span><span class="s2">in </span><span class="s1">logger.handlers</span>
+                <span class="s2">if not </span><span class="s1">_is_console_logging_handler(handler)] + [tqdm_handler]</span>
+        <span class="s2">yield</span>
+    <span class="s2">finally</span><span class="s1">:</span>
+        <span class="s2">for </span><span class="s1">logger</span><span class="s2">, </span><span class="s1">original_handlers </span><span class="s2">in </span><span class="s1">zip(loggers</span><span class="s2">, </span><span class="s1">original_handlers_list):</span>
+            <span class="s1">logger.handlers = original_handlers</span>
+
+
+<span class="s1">@contextmanager</span>
+<span class="s2">def </span><span class="s1">tqdm_logging_redirect(</span>
+    <span class="s1">*args</span><span class="s2">,</span>
+    <span class="s3"># loggers=None,  # type: Optional[List[logging.Logger]]</span>
+    <span class="s3"># tqdm=None,  # type: Optional[Type[tqdm.tqdm]]</span>
+    <span class="s1">**kwargs</span>
+<span class="s1">):</span>
+    <span class="s3"># type: (...) -&gt; Iterator[None]</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Convenience shortcut for: 
+    ```python 
+    with tqdm_class(*args, **tqdm_kwargs) as pbar: 
+        with logging_redirect_tqdm(loggers=loggers, tqdm_class=tqdm_class): 
+            yield pbar 
+    ``` 
+ 
+    Parameters 
+    ---------- 
+    tqdm_class  : optional, (default: tqdm.std.tqdm). 
+    loggers  : optional, list. 
+    **tqdm_kwargs  : passed to `tqdm_class`. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">tqdm_kwargs = kwargs.copy()</span>
+    <span class="s1">loggers = tqdm_kwargs.pop(</span><span class="s4">'loggers'</span><span class="s2">, None</span><span class="s1">)</span>
+    <span class="s1">tqdm_class = tqdm_kwargs.pop(</span><span class="s4">'tqdm_class'</span><span class="s2">, </span><span class="s1">std_tqdm)</span>
+    <span class="s2">with </span><span class="s1">tqdm_class(*args</span><span class="s2">, </span><span class="s1">**tqdm_kwargs) </span><span class="s2">as </span><span class="s1">pbar:</span>
+        <span class="s2">with </span><span class="s1">logging_redirect_tqdm(loggers=loggers</span><span class="s2">, </span><span class="s1">tqdm_class=tqdm_class):</span>
+            <span class="s2">yield </span><span class="s1">pbar</span>
+</pre>
+</body>
+</html>

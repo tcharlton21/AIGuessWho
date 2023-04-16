@@ -1,0 +1,388 @@
+<html>
+<head>
+<title>_quoting_c.pyx</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #a9b7c6;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_quoting_c.pyx</font>
+</center></td></tr></table>
+<pre><span class="s0"># cython: language_level=3</span>
+
+<span class="s0">from cpython.exc cimport PyErr_NoMemory</span>
+<span class="s0">from cpython.mem cimport PyMem_Free, PyMem_Malloc, PyMem_Realloc</span>
+<span class="s0">from cpython.unicode cimport PyUnicode_DecodeASCII, PyUnicode_DecodeUTF8Stateful</span>
+<span class="s0">from libc.stdint cimport uint8_t, uint64_t</span>
+<span class="s0">from libc.string cimport memcpy, memset</span>
+
+<span class="s0">from string import ascii_letters, digits</span>
+
+
+<span class="s0">cdef str GEN_DELIMS = &quot;:/?#[]@&quot;</span>
+<span class="s0">cdef str SUB_DELIMS_WITHOUT_QS = &quot;!$'()*,&quot;</span>
+<span class="s0">cdef str SUB_DELIMS = SUB_DELIMS_WITHOUT_QS + '+?=;'</span>
+<span class="s0">cdef str RESERVED = GEN_DELIMS + SUB_DELIMS</span>
+<span class="s0">cdef str UNRESERVED = ascii_letters + digits + '-._~'</span>
+<span class="s0">cdef str ALLOWED = UNRESERVED + SUB_DELIMS_WITHOUT_QS</span>
+<span class="s0">cdef str QS = '+&amp;=;'</span>
+
+<span class="s0">DEF BUF_SIZE = 8 * 1024  # 8KiB</span>
+<span class="s0">cdef char BUFFER[BUF_SIZE]</span>
+
+<span class="s0">cdef inline Py_UCS4 _to_hex(uint8_t v):</span>
+    <span class="s0">if v &lt; 10:</span>
+        <span class="s0">return &lt;Py_UCS4&gt;(v+0x30)  # ord('0') == 0x30</span>
+    <span class="s0">else:</span>
+        <span class="s0">return &lt;Py_UCS4&gt;(v+0x41-10)  # ord('A') == 0x41</span>
+
+
+<span class="s0">cdef inline int _from_hex(Py_UCS4 v):</span>
+    <span class="s0">if '0' &lt;= v &lt;= '9':</span>
+        <span class="s0">return &lt;int&gt;(v) - 0x30  # ord('0') == 0x30</span>
+    <span class="s0">elif 'A' &lt;= v &lt;= 'F':</span>
+        <span class="s0">return &lt;int&gt;(v) - 0x41 + 10  # ord('A') == 0x41</span>
+    <span class="s0">elif 'a' &lt;= v &lt;= 'f':</span>
+        <span class="s0">return &lt;int&gt;(v) - 0x61 + 10  # ord('a') == 0x61</span>
+    <span class="s0">else:</span>
+        <span class="s0">return -1</span>
+
+
+<span class="s0">cdef inline int _is_lower_hex(Py_UCS4 v):</span>
+    <span class="s0">return 'a' &lt;= v &lt;= 'f'</span>
+
+
+<span class="s0">cdef inline Py_UCS4 _restore_ch(Py_UCS4 d1, Py_UCS4 d2):</span>
+    <span class="s0">cdef int digit1 = _from_hex(d1)</span>
+    <span class="s0">if digit1 &lt; 0:</span>
+        <span class="s0">return &lt;Py_UCS4&gt;-1</span>
+    <span class="s0">cdef int digit2 = _from_hex(d2)</span>
+    <span class="s0">if digit2 &lt; 0:</span>
+        <span class="s0">return &lt;Py_UCS4&gt;-1</span>
+    <span class="s0">return &lt;Py_UCS4&gt;(digit1 &lt;&lt; 4 | digit2)</span>
+
+
+<span class="s0">cdef uint8_t ALLOWED_TABLE[16]</span>
+<span class="s0">cdef uint8_t ALLOWED_NOTQS_TABLE[16]</span>
+
+
+<span class="s0">cdef inline bint bit_at(uint8_t array[], uint64_t ch):</span>
+    <span class="s0">return array[ch &gt;&gt; 3] &amp; (1 &lt;&lt; (ch &amp; 7))</span>
+
+
+<span class="s0">cdef inline void set_bit(uint8_t array[], uint64_t ch):</span>
+    <span class="s0">array[ch &gt;&gt; 3] |= (1 &lt;&lt; (ch &amp; 7))</span>
+
+
+<span class="s0">memset(ALLOWED_TABLE, 0, sizeof(ALLOWED_TABLE))</span>
+<span class="s0">memset(ALLOWED_NOTQS_TABLE, 0, sizeof(ALLOWED_NOTQS_TABLE))</span>
+
+<span class="s0">for i in range(128):</span>
+    <span class="s0">if chr(i) in ALLOWED:</span>
+        <span class="s0">set_bit(ALLOWED_TABLE, i)</span>
+        <span class="s0">set_bit(ALLOWED_NOTQS_TABLE, i)</span>
+    <span class="s0">if chr(i) in QS:</span>
+        <span class="s0">set_bit(ALLOWED_NOTQS_TABLE, i)</span>
+
+<span class="s0"># ----------------- writer ---------------------------</span>
+
+<span class="s0">cdef struct Writer:</span>
+    <span class="s0">char *buf</span>
+    <span class="s0">Py_ssize_t size</span>
+    <span class="s0">Py_ssize_t pos</span>
+    <span class="s0">bint changed</span>
+
+
+<span class="s0">cdef inline void _init_writer(Writer* writer):</span>
+    <span class="s0">writer.buf = &amp;BUFFER[0]</span>
+    <span class="s0">writer.size = BUF_SIZE</span>
+    <span class="s0">writer.pos = 0</span>
+    <span class="s0">writer.changed = 0</span>
+
+
+<span class="s0">cdef inline void _release_writer(Writer* writer):</span>
+    <span class="s0">if writer.buf != BUFFER:</span>
+        <span class="s0">PyMem_Free(writer.buf)</span>
+
+
+<span class="s0">cdef inline int _write_char(Writer* writer, Py_UCS4 ch, bint changed):</span>
+    <span class="s0">cdef char * buf</span>
+    <span class="s0">cdef Py_ssize_t size</span>
+
+    <span class="s0">if writer.pos == writer.size:</span>
+        <span class="s0"># reallocate</span>
+        <span class="s0">size = writer.size + BUF_SIZE</span>
+        <span class="s0">if writer.buf == BUFFER:</span>
+            <span class="s0">buf = &lt;char*&gt;PyMem_Malloc(size)</span>
+            <span class="s0">if buf == NULL:</span>
+                <span class="s0">PyErr_NoMemory()</span>
+                <span class="s0">return -1</span>
+            <span class="s0">memcpy(buf, writer.buf, writer.size)</span>
+        <span class="s0">else:</span>
+            <span class="s0">buf = &lt;char*&gt;PyMem_Realloc(writer.buf, size)</span>
+            <span class="s0">if buf == NULL:</span>
+                <span class="s0">PyErr_NoMemory()</span>
+                <span class="s0">return -1</span>
+        <span class="s0">writer.buf = buf</span>
+        <span class="s0">writer.size = size</span>
+    <span class="s0">writer.buf[writer.pos] = &lt;char&gt;ch</span>
+    <span class="s0">writer.pos += 1</span>
+    <span class="s0">writer.changed |= changed</span>
+    <span class="s0">return 0</span>
+
+
+<span class="s0">cdef inline int _write_pct(Writer* writer, uint8_t ch, bint changed):</span>
+    <span class="s0">if _write_char(writer, '%', changed) &lt; 0:</span>
+        <span class="s0">return -1</span>
+    <span class="s0">if _write_char(writer, _to_hex(&lt;uint8_t&gt;ch &gt;&gt; 4), changed) &lt; 0:</span>
+        <span class="s0">return -1</span>
+    <span class="s0">return _write_char(writer, _to_hex(&lt;uint8_t&gt;ch &amp; 0x0f), changed)</span>
+
+
+<span class="s0">cdef inline int _write_utf8(Writer* writer, Py_UCS4 symbol):</span>
+    <span class="s0">cdef uint64_t utf = &lt;uint64_t&gt; symbol</span>
+
+    <span class="s0">if utf &lt; 0x80:</span>
+        <span class="s0">return _write_pct(writer, &lt;uint8_t&gt;utf, True)</span>
+    <span class="s0">elif utf &lt; 0x800:</span>
+        <span class="s0">if _write_pct(writer, &lt;uint8_t&gt;(0xc0 | (utf &gt;&gt; 6)), True) &lt; 0:</span>
+            <span class="s0">return -1</span>
+        <span class="s0">return _write_pct(writer,  &lt;uint8_t&gt;(0x80 | (utf &amp; 0x3f)), True)</span>
+    <span class="s0">elif 0xD800 &lt;= utf &lt;= 0xDFFF:</span>
+        <span class="s0"># surogate pair, ignored</span>
+        <span class="s0">return 0</span>
+    <span class="s0">elif utf &lt; 0x10000:</span>
+        <span class="s0">if _write_pct(writer, &lt;uint8_t&gt;(0xe0 | (utf &gt;&gt; 12)), True) &lt; 0:</span>
+            <span class="s0">return -1</span>
+        <span class="s0">if _write_pct(writer, &lt;uint8_t&gt;(0x80 | ((utf &gt;&gt; 6) &amp; 0x3f)),</span>
+                       <span class="s0">True) &lt; 0:</span>
+            <span class="s0">return -1</span>
+        <span class="s0">return _write_pct(writer, &lt;uint8_t&gt;(0x80 | (utf &amp; 0x3f)), True)</span>
+    <span class="s0">elif utf &gt; 0x10FFFF:</span>
+        <span class="s0"># symbol is too large</span>
+        <span class="s0">return 0</span>
+    <span class="s0">else:</span>
+        <span class="s0">if _write_pct(writer,  &lt;uint8_t&gt;(0xf0 | (utf &gt;&gt; 18)), True) &lt; 0:</span>
+            <span class="s0">return -1</span>
+        <span class="s0">if _write_pct(writer,  &lt;uint8_t&gt;(0x80 | ((utf &gt;&gt; 12) &amp; 0x3f)),</span>
+                       <span class="s0">True) &lt; 0:</span>
+           <span class="s0">return -1</span>
+        <span class="s0">if _write_pct(writer,  &lt;uint8_t&gt;(0x80 | ((utf &gt;&gt; 6) &amp; 0x3f)),</span>
+                       <span class="s0">True) &lt; 0:</span>
+            <span class="s0">return -1</span>
+        <span class="s0">return _write_pct(writer, &lt;uint8_t&gt;(0x80 | (utf &amp; 0x3f)), True)</span>
+
+
+<span class="s0"># --------------------- end writer --------------------------</span>
+
+
+<span class="s0">cdef class _Quoter:</span>
+    <span class="s0">cdef bint _qs</span>
+    <span class="s0">cdef bint _requote</span>
+
+    <span class="s0">cdef uint8_t _safe_table[16]</span>
+    <span class="s0">cdef uint8_t _protected_table[16]</span>
+
+    <span class="s0">def __init__(</span>
+            <span class="s0">self, *, str safe='', str protected='', bint qs=False, bint requote=True,</span>
+    <span class="s0">):</span>
+        <span class="s0">cdef Py_UCS4 ch</span>
+
+        <span class="s0">self._qs = qs</span>
+        <span class="s0">self._requote = requote</span>
+
+        <span class="s0">if not self._qs:</span>
+            <span class="s0">memcpy(self._safe_table,</span>
+                   <span class="s0">ALLOWED_NOTQS_TABLE,</span>
+                   <span class="s0">sizeof(self._safe_table))</span>
+        <span class="s0">else:</span>
+            <span class="s0">memcpy(self._safe_table,</span>
+                   <span class="s0">ALLOWED_TABLE,</span>
+                   <span class="s0">sizeof(self._safe_table))</span>
+        <span class="s0">for ch in safe:</span>
+            <span class="s0">if ord(ch) &gt; 127:</span>
+                <span class="s0">raise ValueError(&quot;Only safe symbols with ORD &lt; 128 are allowed&quot;)</span>
+            <span class="s0">set_bit(self._safe_table, ch)</span>
+
+        <span class="s0">memset(self._protected_table, 0, sizeof(self._protected_table))</span>
+        <span class="s0">for ch in protected:</span>
+            <span class="s0">if ord(ch) &gt; 127:</span>
+                <span class="s0">raise ValueError(&quot;Only safe symbols with ORD &lt; 128 are allowed&quot;)</span>
+            <span class="s0">set_bit(self._safe_table, ch)</span>
+            <span class="s0">set_bit(self._protected_table, ch)</span>
+
+    <span class="s0">def __call__(self, val):</span>
+        <span class="s0">cdef Writer writer</span>
+        <span class="s0">if val is None:</span>
+            <span class="s0">return None</span>
+        <span class="s0">if type(val) is not str:</span>
+            <span class="s0">if isinstance(val, str):</span>
+                <span class="s0"># derived from str</span>
+                <span class="s0">val = str(val)</span>
+            <span class="s0">else:</span>
+                <span class="s0">raise TypeError(&quot;Argument should be str&quot;)</span>
+        <span class="s0">_init_writer(&amp;writer)</span>
+        <span class="s0">try:</span>
+            <span class="s0">return self._do_quote(&lt;str&gt;val, &amp;writer)</span>
+        <span class="s0">finally:</span>
+            <span class="s0">_release_writer(&amp;writer)</span>
+
+    <span class="s0">cdef str _do_quote(self, str val, Writer *writer):</span>
+        <span class="s0">cdef Py_UCS4 ch</span>
+        <span class="s0">cdef int changed</span>
+        <span class="s0">cdef int idx = 0</span>
+        <span class="s0">cdef int length = len(val)</span>
+
+        <span class="s0">while idx &lt; length:</span>
+            <span class="s0">ch = val[idx]</span>
+            <span class="s0">idx += 1</span>
+            <span class="s0">if ch == '%' and self._requote and idx &lt;= length - 2:</span>
+                <span class="s0">ch = _restore_ch(val[idx], val[idx + 1])</span>
+                <span class="s0">if ch != &lt;Py_UCS4&gt;-1:</span>
+                    <span class="s0">idx += 2</span>
+                    <span class="s0">if ch &lt; 128:</span>
+                        <span class="s0">if bit_at(self._protected_table, ch):</span>
+                            <span class="s0">if _write_pct(writer, ch, True) &lt; 0:</span>
+                                <span class="s0">raise</span>
+                            <span class="s0">continue</span>
+
+                        <span class="s0">if bit_at(self._safe_table, ch):</span>
+                            <span class="s0">if _write_char(writer, ch, True) &lt; 0:</span>
+                                <span class="s0">raise</span>
+                            <span class="s0">continue</span>
+
+                    <span class="s0">changed = (_is_lower_hex(val[idx - 2]) or</span>
+                               <span class="s0">_is_lower_hex(val[idx - 1]))</span>
+                    <span class="s0">if _write_pct(writer, ch, changed) &lt; 0:</span>
+                        <span class="s0">raise</span>
+                    <span class="s0">continue</span>
+                <span class="s0">else:</span>
+                    <span class="s0">ch = '%'</span>
+
+            <span class="s0">if self._write(writer, ch) &lt; 0:</span>
+                <span class="s0">raise</span>
+
+        <span class="s0">if not writer.changed:</span>
+            <span class="s0">return val</span>
+        <span class="s0">else:</span>
+            <span class="s0">return PyUnicode_DecodeASCII(writer.buf, writer.pos, &quot;strict&quot;)</span>
+
+    <span class="s0">cdef inline int _write(self, Writer *writer, Py_UCS4 ch):</span>
+        <span class="s0">if self._qs:</span>
+            <span class="s0">if ch == ' ':</span>
+                <span class="s0">return _write_char(writer, '+', True)</span>
+
+        <span class="s0">if ch &lt; 128 and bit_at(self._safe_table, ch):</span>
+            <span class="s0">return _write_char(writer, ch, False)</span>
+
+        <span class="s0">return _write_utf8(writer, ch)</span>
+
+
+<span class="s0">cdef class _Unquoter:</span>
+    <span class="s0">cdef str _unsafe</span>
+    <span class="s0">cdef bint _qs</span>
+    <span class="s0">cdef _Quoter _quoter</span>
+    <span class="s0">cdef _Quoter _qs_quoter</span>
+
+    <span class="s0">def __init__(self, *, unsafe='', qs=False):</span>
+        <span class="s0">self._unsafe = unsafe</span>
+        <span class="s0">self._qs = qs</span>
+        <span class="s0">self._quoter = _Quoter()</span>
+        <span class="s0">self._qs_quoter = _Quoter(qs=True)</span>
+
+    <span class="s0">def __call__(self, val):</span>
+        <span class="s0">if val is None:</span>
+            <span class="s0">return None</span>
+        <span class="s0">if type(val) is not str:</span>
+            <span class="s0">if isinstance(val, str):</span>
+                <span class="s0"># derived from str</span>
+                <span class="s0">val = str(val)</span>
+            <span class="s0">else:</span>
+                <span class="s0">raise TypeError(&quot;Argument should be str&quot;)</span>
+        <span class="s0">return self._do_unquote(&lt;str&gt;val)</span>
+
+    <span class="s0">cdef str _do_unquote(self, str val):</span>
+        <span class="s0">if len(val) == 0:</span>
+            <span class="s0">return val</span>
+        <span class="s0">cdef list ret = []</span>
+        <span class="s0">cdef char buffer[4]</span>
+        <span class="s0">cdef Py_ssize_t buflen = 0</span>
+        <span class="s0">cdef Py_ssize_t consumed</span>
+        <span class="s0">cdef str unquoted</span>
+        <span class="s0">cdef Py_UCS4 ch = 0</span>
+        <span class="s0">cdef Py_ssize_t idx = 0</span>
+        <span class="s0">cdef Py_ssize_t length = len(val)</span>
+        <span class="s0">cdef Py_ssize_t start_pct</span>
+
+        <span class="s0">while idx &lt; length:</span>
+            <span class="s0">ch = val[idx]</span>
+            <span class="s0">idx += 1</span>
+            <span class="s0">if ch == '%' and idx &lt;= length - 2:</span>
+                <span class="s0">ch = _restore_ch(val[idx], val[idx + 1])</span>
+                <span class="s0">if ch != &lt;Py_UCS4&gt;-1:</span>
+                    <span class="s0">idx += 2</span>
+                    <span class="s0">assert buflen &lt; 4</span>
+                    <span class="s0">buffer[buflen] = ch</span>
+                    <span class="s0">buflen += 1</span>
+                    <span class="s0">try:</span>
+                        <span class="s0">unquoted = PyUnicode_DecodeUTF8Stateful(buffer, buflen,</span>
+                                                                <span class="s0">NULL, &amp;consumed)</span>
+                    <span class="s0">except UnicodeDecodeError:</span>
+                        <span class="s0">start_pct = idx - buflen * 3</span>
+                        <span class="s0">buffer[0] = ch</span>
+                        <span class="s0">buflen = 1</span>
+                        <span class="s0">ret.append(val[start_pct : idx - 3])</span>
+                        <span class="s0">try:</span>
+                            <span class="s0">unquoted = PyUnicode_DecodeUTF8Stateful(buffer, buflen,</span>
+                                                                    <span class="s0">NULL, &amp;consumed)</span>
+                        <span class="s0">except UnicodeDecodeError:</span>
+                            <span class="s0">buflen = 0</span>
+                            <span class="s0">ret.append(val[idx - 3 : idx])</span>
+                            <span class="s0">continue</span>
+                    <span class="s0">if not unquoted:</span>
+                        <span class="s0">assert consumed == 0</span>
+                        <span class="s0">continue</span>
+                    <span class="s0">assert consumed == buflen</span>
+                    <span class="s0">buflen = 0</span>
+                    <span class="s0">if self._qs and unquoted in '+=&amp;;':</span>
+                        <span class="s0">ret.append(self._qs_quoter(unquoted))</span>
+                    <span class="s0">elif unquoted in self._unsafe:</span>
+                        <span class="s0">ret.append(self._quoter(unquoted))</span>
+                    <span class="s0">else:</span>
+                        <span class="s0">ret.append(unquoted)</span>
+                    <span class="s0">continue</span>
+                <span class="s0">else:</span>
+                    <span class="s0">ch = '%'</span>
+
+            <span class="s0">if buflen:</span>
+                <span class="s0">start_pct = idx - 1 - buflen * 3</span>
+                <span class="s0">ret.append(val[start_pct : idx - 1])</span>
+                <span class="s0">buflen = 0</span>
+
+            <span class="s0">if ch == '+':</span>
+                <span class="s0">if not self._qs or ch in self._unsafe:</span>
+                    <span class="s0">ret.append('+')</span>
+                <span class="s0">else:</span>
+                    <span class="s0">ret.append(' ')</span>
+                <span class="s0">continue</span>
+
+            <span class="s0">if ch in self._unsafe:</span>
+                <span class="s0">ret.append('%')</span>
+                <span class="s0">h = hex(ord(ch)).upper()[2:]</span>
+                <span class="s0">for ch in h:</span>
+                    <span class="s0">ret.append(ch)</span>
+                <span class="s0">continue</span>
+
+            <span class="s0">ret.append(ch)</span>
+
+        <span class="s0">if buflen:</span>
+            <span class="s0">ret.append(val[length - buflen * 3 : length])</span>
+
+        <span class="s0">return ''.join(ret)</span>
+</pre>
+</body>
+</html>

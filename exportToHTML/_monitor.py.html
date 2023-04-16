@@ -1,0 +1,117 @@
+<html>
+<head>
+<title>_monitor.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cc7832;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #6a8759;}
+.s3 { color: #629755; font-style: italic;}
+.s4 { color: #808080;}
+.s5 { color: #6897bb;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_monitor.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">atexit</span>
+<span class="s0">from </span><span class="s1">threading </span><span class="s0">import </span><span class="s1">Event</span><span class="s0">, </span><span class="s1">Thread</span><span class="s0">, </span><span class="s1">current_thread</span>
+<span class="s0">from </span><span class="s1">time </span><span class="s0">import </span><span class="s1">time</span>
+<span class="s0">from </span><span class="s1">warnings </span><span class="s0">import </span><span class="s1">warn</span>
+
+<span class="s1">__all__ = [</span><span class="s2">&quot;TMonitor&quot;</span><span class="s0">, </span><span class="s2">&quot;TqdmSynchronisationWarning&quot;</span><span class="s1">]</span>
+
+
+<span class="s0">class </span><span class="s1">TqdmSynchronisationWarning(RuntimeWarning):</span>
+    <span class="s3">&quot;&quot;&quot;tqdm multi-thread/-process errors which may cause incorrect nesting 
+    but otherwise no adverse effects&quot;&quot;&quot;</span>
+    <span class="s0">pass</span>
+
+
+<span class="s0">class </span><span class="s1">TMonitor(Thread):</span>
+    <span class="s3">&quot;&quot;&quot; 
+    Monitoring thread for tqdm bars. 
+    Monitors if tqdm bars are taking too much time to display 
+    and readjusts miniters automatically if necessary. 
+ 
+    Parameters 
+    ---------- 
+    tqdm_cls  : class 
+        tqdm class to use (can be core tqdm or a submodule). 
+    sleep_interval  : float 
+        Time to sleep between monitoring checks. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">_test = {}  </span><span class="s4"># internal vars for unit testing</span>
+
+    <span class="s0">def </span><span class="s1">__init__(self</span><span class="s0">, </span><span class="s1">tqdm_cls</span><span class="s0">, </span><span class="s1">sleep_interval):</span>
+        <span class="s1">Thread.__init__(self)</span>
+        <span class="s1">self.daemon = </span><span class="s0">True  </span><span class="s4"># kill thread when main killed (KeyboardInterrupt)</span>
+        <span class="s1">self.woken = </span><span class="s5">0  </span><span class="s4"># last time woken up, to sync with monitor</span>
+        <span class="s1">self.tqdm_cls = tqdm_cls</span>
+        <span class="s1">self.sleep_interval = sleep_interval</span>
+        <span class="s1">self._time = self._test.get(</span><span class="s2">&quot;time&quot;</span><span class="s0">, </span><span class="s1">time)</span>
+        <span class="s1">self.was_killed = self._test.get(</span><span class="s2">&quot;Event&quot;</span><span class="s0">, </span><span class="s1">Event)()</span>
+        <span class="s1">atexit.register(self.exit)</span>
+        <span class="s1">self.start()</span>
+
+    <span class="s0">def </span><span class="s1">exit(self):</span>
+        <span class="s1">self.was_killed.set()</span>
+        <span class="s0">if </span><span class="s1">self </span><span class="s0">is not </span><span class="s1">current_thread():</span>
+            <span class="s1">self.join()</span>
+        <span class="s0">return </span><span class="s1">self.report()</span>
+
+    <span class="s0">def </span><span class="s1">get_instances(self):</span>
+        <span class="s4"># returns a copy of started `tqdm_cls` instances</span>
+        <span class="s0">return </span><span class="s1">[i </span><span class="s0">for </span><span class="s1">i </span><span class="s0">in </span><span class="s1">self.tqdm_cls._instances.copy()</span>
+                <span class="s4"># Avoid race by checking that the instance started</span>
+                <span class="s0">if </span><span class="s1">hasattr(i</span><span class="s0">, </span><span class="s2">'start_t'</span><span class="s1">)]</span>
+
+    <span class="s0">def </span><span class="s1">run(self):</span>
+        <span class="s1">cur_t = self._time()</span>
+        <span class="s0">while True</span><span class="s1">:</span>
+            <span class="s4"># After processing and before sleeping, notify that we woke</span>
+            <span class="s4"># Need to be done just before sleeping</span>
+            <span class="s1">self.woken = cur_t</span>
+            <span class="s4"># Sleep some time...</span>
+            <span class="s1">self.was_killed.wait(self.sleep_interval)</span>
+            <span class="s4"># Quit if killed</span>
+            <span class="s0">if </span><span class="s1">self.was_killed.is_set():</span>
+                <span class="s0">return</span>
+            <span class="s4"># Then monitor!</span>
+            <span class="s4"># Acquire lock (to access _instances)</span>
+            <span class="s0">with </span><span class="s1">self.tqdm_cls.get_lock():</span>
+                <span class="s1">cur_t = self._time()</span>
+                <span class="s4"># Check tqdm instances are waiting too long to print</span>
+                <span class="s1">instances = self.get_instances()</span>
+                <span class="s0">for </span><span class="s1">instance </span><span class="s0">in </span><span class="s1">instances:</span>
+                    <span class="s4"># Check event in loop to reduce blocking time on exit</span>
+                    <span class="s0">if </span><span class="s1">self.was_killed.is_set():</span>
+                        <span class="s0">return</span>
+                    <span class="s4"># Only if mininterval &gt; 1 (else iterations are just slow)</span>
+                    <span class="s4"># and last refresh exceeded maxinterval</span>
+                    <span class="s0">if </span><span class="s1">(</span>
+                        <span class="s1">instance.miniters &gt; </span><span class="s5">1</span>
+                        <span class="s0">and </span><span class="s1">(cur_t - instance.last_print_t) &gt;= instance.maxinterval</span>
+                    <span class="s1">):</span>
+                        <span class="s4"># force bypassing miniters on next iteration</span>
+                        <span class="s4"># (dynamic_miniters adjusts mininterval automatically)</span>
+                        <span class="s1">instance.miniters = </span><span class="s5">1</span>
+                        <span class="s4"># Refresh now! (works only for manual tqdm)</span>
+                        <span class="s1">instance.refresh(nolock=</span><span class="s0">True</span><span class="s1">)</span>
+                    <span class="s4"># Remove accidental long-lived strong reference</span>
+                    <span class="s0">del </span><span class="s1">instance</span>
+                <span class="s0">if </span><span class="s1">instances != self.get_instances():  </span><span class="s4"># pragma: nocover</span>
+                    <span class="s1">warn(</span><span class="s2">&quot;Set changed size during iteration&quot; </span><span class="s1">+</span>
+                         <span class="s2">&quot; (see https://github.com/tqdm/tqdm/issues/481)&quot;</span><span class="s0">,</span>
+                         <span class="s1">TqdmSynchronisationWarning</span><span class="s0">, </span><span class="s1">stacklevel=</span><span class="s5">2</span><span class="s1">)</span>
+                <span class="s4"># Remove accidental long-lived strong references</span>
+                <span class="s0">del </span><span class="s1">instances</span>
+
+    <span class="s0">def </span><span class="s1">report(self):</span>
+        <span class="s0">return not </span><span class="s1">self.was_killed.is_set()</span>
+</pre>
+</body>
+</html>

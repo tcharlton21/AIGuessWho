@@ -1,0 +1,28 @@
+<html>
+<head>
+<title>deactivate.nu</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #a9b7c6;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+deactivate.nu</font>
+</center></td></tr></table>
+<pre><span class="s0"># Setting the old path</span>
+<span class="s0">let path-name = (if ((sys).host.name == &quot;Windows&quot;) { &quot;Path&quot; } { &quot;PATH&quot; })</span>
+<span class="s0">let-env $path-name = $nu.env._OLD_VIRTUAL_PATH</span>
+
+<span class="s0"># Unleting the environment variables that were created when activating the env</span>
+<span class="s0">unlet-env VIRTUAL_ENV</span>
+<span class="s0">unlet-env _OLD_VIRTUAL_PATH</span>
+<span class="s0">unlet-env PROMPT_COMMAND</span>
+
+<span class="s0">unalias pydoc</span>
+<span class="s0">unalias deactivate</span>
+</pre>
+</body>
+</html>

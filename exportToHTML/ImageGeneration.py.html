@@ -1,0 +1,91 @@
+<html>
+<head>
+<title>ImageGeneration.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cc7832;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #808080;}
+.s3 { color: #6a8759;}
+.s4 { color: #6897bb;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+ImageGeneration.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">openai</span>
+<span class="s0">from </span><span class="s1">PIL </span><span class="s0">import </span><span class="s1">Image</span><span class="s0">, </span><span class="s1">ImageTk</span>
+<span class="s0">import </span><span class="s1">requests</span>
+<span class="s0">import </span><span class="s1">tkinter </span><span class="s0">as </span><span class="s1">tk</span>
+
+<span class="s1">any_box_selected = </span><span class="s0">False</span>
+<span class="s2">#openai.api_key = &quot;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&quot;</span>
+
+<span class="s2"># def generate_images(prompt, n=1, size=&quot;256x256&quot;):</span>
+<span class="s2">#     &quot;&quot;&quot;</span>
+<span class="s2">#     Generates images using OpenAI's DALL-E API.</span>
+<span class="s2">#</span>
+<span class="s2">#     Args:</span>
+<span class="s2">#         prompt (str): The prompt to generate the image from.</span>
+<span class="s2">#         n (int): The number of images to generate.</span>
+<span class="s2">#         size (str): The size of the images in the format &quot;WIDTHxHEIGHT&quot;.</span>
+<span class="s2"># </span>
+<span class="s2">#     Returns:</span>
+<span class="s2">#         A list of URLs for the generated images.</span>
+<span class="s2">#     &quot;&quot;&quot;</span>
+<span class="s2">#     response = openai.Image.create(prompt=prompt, n=n, size=size)</span>
+<span class="s2">#     image_urls = [r['url'] for r in response['data']]</span>
+<span class="s2">#     return image_urls</span>
+
+<span class="s0">def </span><span class="s1">get_images():</span>
+    <span class="s1">images = []</span>
+    <span class="s1">names = [</span>
+        <span class="s3">&quot;A&quot;</span><span class="s0">, </span><span class="s3">&quot;B&quot;</span><span class="s0">, </span><span class="s3">&quot;C&quot;</span><span class="s0">, </span><span class="s3">&quot;D&quot;</span><span class="s0">,</span>
+        <span class="s3">&quot;E&quot;</span><span class="s0">, </span><span class="s3">&quot;F&quot;</span><span class="s0">, </span><span class="s3">&quot;G&quot;</span><span class="s0">, </span><span class="s3">&quot;H&quot;</span><span class="s0">,</span>
+        <span class="s3">&quot;I&quot;</span><span class="s0">, </span><span class="s3">&quot;J&quot;</span><span class="s0">, </span><span class="s3">&quot;K&quot;</span><span class="s0">, </span><span class="s3">&quot;L&quot;</span><span class="s0">,</span>
+        <span class="s3">&quot;M&quot;</span><span class="s0">, </span><span class="s3">&quot;N&quot;</span><span class="s0">, </span><span class="s3">&quot;O&quot;</span><span class="s0">, </span><span class="s3">&quot;P&quot;</span>
+    <span class="s1">]</span>
+
+    <span class="s0">for </span><span class="s1">i </span><span class="s0">in </span><span class="s1">range(</span><span class="s4">1</span><span class="s0">, </span><span class="s4">17</span><span class="s1">):</span>
+        <span class="s1">img = Image.open(</span><span class="s3">f&quot;/Users/trentcharlton/Downloads/GuessWhoSetImages/GuessWhoImages/img</span><span class="s0">{</span><span class="s1">i</span><span class="s0">}</span><span class="s3">.png&quot;</span><span class="s1">)</span>
+        <span class="s1">img = img.resize((</span><span class="s4">140</span><span class="s0">, </span><span class="s4">120</span><span class="s1">)</span><span class="s0">, </span><span class="s1">Image.ANTIALIAS)</span>
+        <span class="s1">images.append(img)</span>
+
+    <span class="s0">return </span><span class="s1">images</span><span class="s0">, </span><span class="s1">names</span>
+
+<span class="s0">def </span><span class="s1">place_images(images</span><span class="s0">, </span><span class="s1">names</span><span class="s0">, </span><span class="s1">board_frame</span><span class="s0">, </span><span class="s1">ui):</span>
+    <span class="s1">boxes = board_frame.winfo_children()</span>
+
+    <span class="s0">def </span><span class="s1">add_hover_behavior(box</span><span class="s0">, </span><span class="s1">tk_image</span><span class="s0">, </span><span class="s1">name):</span>
+        <span class="s0">def </span><span class="s1">select_box(event):</span>
+            <span class="s0">nonlocal </span><span class="s1">ui</span>
+
+            <span class="s0">if </span><span class="s1">ui.selected_box </span><span class="s0">and </span><span class="s1">ui.selected_box != ui.box_selected:</span>
+                <span class="s1">ui.selected_box.config(highlightbackground=</span><span class="s3">&quot;black&quot;</span><span class="s0">, </span><span class="s1">highlightthickness=</span><span class="s4">1</span><span class="s1">)</span>
+
+            <span class="s1">ui.selected_box = box</span>
+            <span class="s1">box.config(highlightbackground=</span><span class="s3">&quot;blue&quot;</span><span class="s0">, </span><span class="s1">highlightthickness=</span><span class="s4">2</span><span class="s1">)</span>
+            <span class="s1">ui.chat.update_feedback(</span><span class="s3">f&quot;Box </span><span class="s0">{</span><span class="s1">boxes.index(box) + </span><span class="s4">1</span><span class="s0">} </span><span class="s3">selected&quot;</span><span class="s1">)</span>
+
+        <span class="s1">label = tk.Label(box</span><span class="s0">, </span><span class="s1">image=tk_image)</span>
+        <span class="s1">label.image = tk_image</span>
+        <span class="s1">label.pack(side=</span><span class="s3">&quot;top&quot;</span><span class="s1">)</span>
+
+        <span class="s1">name_label = tk.Label(box</span><span class="s0">, </span><span class="s1">text=name</span><span class="s0">, </span><span class="s1">bg=</span><span class="s3">&quot;white&quot;</span><span class="s1">)</span>
+        <span class="s1">name_label.pack(side=</span><span class="s3">&quot;bottom&quot;</span><span class="s1">)</span>
+
+        <span class="s1">label.bind(</span><span class="s3">&quot;&lt;Button-1&gt;&quot;</span><span class="s0">, </span><span class="s1">select_box)</span>
+
+    <span class="s0">for </span><span class="s1">i </span><span class="s0">in </span><span class="s1">range(</span><span class="s4">16</span><span class="s1">):</span>
+        <span class="s1">tk_image = ImageTk.PhotoImage(images[i])</span>
+
+        <span class="s1">box = boxes[i]</span>
+        <span class="s1">box.selected = </span><span class="s0">False</span>
+        <span class="s1">add_hover_behavior(box</span><span class="s0">, </span><span class="s1">tk_image</span><span class="s0">, </span><span class="s1">names[i])</span>
+
+</pre>
+</body>
+</html>

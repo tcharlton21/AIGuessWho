@@ -1,0 +1,461 @@
+<html>
+<head>
+<title>__init__.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #629755; font-style: italic;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #cc7832;}
+.s3 { color: #808080;}
+.s4 { color: #6a8759;}
+.s5 { color: #6897bb;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+__init__.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+NumPy 
+===== 
+ 
+Provides 
+  1. An array object of arbitrary homogeneous items 
+  2. Fast mathematical operations over arrays 
+  3. Linear Algebra, Fourier Transforms, Random Number Generation 
+ 
+How to use the documentation 
+---------------------------- 
+Documentation is available in two forms: docstrings provided 
+with the code, and a loose standing reference guide, available from 
+`the NumPy homepage &lt;https://numpy.org&gt;`_. 
+ 
+We recommend exploring the docstrings using 
+`IPython &lt;https://ipython.org&gt;`_, an advanced Python shell with 
+TAB-completion and introspection capabilities.  See below for further 
+instructions. 
+ 
+The docstring examples assume that `numpy` has been imported as ``np``:: 
+ 
+  &gt;&gt;&gt; import numpy as np 
+ 
+Code snippets are indicated by three greater-than signs:: 
+ 
+  &gt;&gt;&gt; x = 42 
+  &gt;&gt;&gt; x = x + 1 
+ 
+Use the built-in ``help`` function to view a function's docstring:: 
+ 
+  &gt;&gt;&gt; help(np.sort) 
+  ... # doctest: +SKIP 
+ 
+For some objects, ``np.info(obj)`` may provide additional help.  This is 
+particularly true if you see the line &quot;Help on ufunc object:&quot; at the top 
+of the help() page.  Ufuncs are implemented in C, not Python, for speed. 
+The native Python help() does not know how to view their help, but our 
+np.info() function does. 
+ 
+To search for documents containing a keyword, do:: 
+ 
+  &gt;&gt;&gt; np.lookfor('keyword') 
+  ... # doctest: +SKIP 
+ 
+General-purpose documents like a glossary and help on the basic concepts 
+of numpy are available under the ``doc`` sub-module:: 
+ 
+  &gt;&gt;&gt; from numpy import doc 
+  &gt;&gt;&gt; help(doc) 
+  ... # doctest: +SKIP 
+ 
+Available subpackages 
+--------------------- 
+lib 
+    Basic functions used by several sub-packages. 
+random 
+    Core Random Tools 
+linalg 
+    Core Linear Algebra Tools 
+fft 
+    Core FFT routines 
+polynomial 
+    Polynomial tools 
+testing 
+    NumPy testing tools 
+distutils 
+    Enhancements to distutils with support for 
+    Fortran compilers support and more. 
+ 
+Utilities 
+--------- 
+test 
+    Run numpy unittests 
+show_config 
+    Show numpy build configuration 
+dual 
+    Overwrite certain functions with high-performance SciPy tools. 
+    Note: `numpy.dual` is deprecated.  Use the functions from NumPy or Scipy 
+    directly instead of importing them from `numpy.dual`. 
+matlib 
+    Make everything matrices. 
+__version__ 
+    NumPy version string 
+ 
+Viewing documentation using IPython 
+----------------------------------- 
+ 
+Start IPython and import `numpy` usually under the alias ``np``: `import 
+numpy as np`.  Then, directly past or use the ``%cpaste`` magic to paste 
+examples into the shell.  To see which functions are available in `numpy`, 
+type ``np.&lt;TAB&gt;`` (where ``&lt;TAB&gt;`` refers to the TAB key), or use 
+``np.*cos*?&lt;ENTER&gt;`` (where ``&lt;ENTER&gt;`` refers to the ENTER key) to narrow 
+down the list.  To view the docstring for a function, use 
+``np.cos?&lt;ENTER&gt;`` (to view the docstring) and ``np.cos??&lt;ENTER&gt;`` (to view 
+the source code). 
+ 
+Copies vs. in-place operation 
+----------------------------- 
+Most of the functions in `numpy` return a copy of the array argument 
+(e.g., `np.sort`).  In-place versions of these functions are often 
+available as array methods, i.e. ``x = np.array([1,2,3]); x.sort()``. 
+Exceptions to this rule are documented. 
+ 
+&quot;&quot;&quot;</span>
+<span class="s2">import </span><span class="s1">sys</span>
+<span class="s2">import </span><span class="s1">warnings</span>
+
+<span class="s2">from </span><span class="s1">._globals </span><span class="s2">import </span><span class="s1">(</span>
+    <span class="s1">ModuleDeprecationWarning</span><span class="s2">, </span><span class="s1">VisibleDeprecationWarning</span><span class="s2">,</span>
+    <span class="s1">_NoValue</span><span class="s2">, </span><span class="s1">_CopyMode</span>
+<span class="s1">)</span>
+
+<span class="s3"># We first need to detect if we're being called as part of the numpy setup</span>
+<span class="s3"># procedure itself in a reliable manner.</span>
+<span class="s2">try</span><span class="s1">:</span>
+    <span class="s1">__NUMPY_SETUP__</span>
+<span class="s2">except </span><span class="s1">NameError:</span>
+    <span class="s1">__NUMPY_SETUP__ = </span><span class="s2">False</span>
+
+<span class="s2">if </span><span class="s1">__NUMPY_SETUP__:</span>
+    <span class="s1">sys.stderr.write(</span><span class="s4">'Running from numpy source directory.</span><span class="s2">\n</span><span class="s4">'</span><span class="s1">)</span>
+<span class="s2">else</span><span class="s1">:</span>
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s2">from </span><span class="s1">numpy.__config__ </span><span class="s2">import </span><span class="s1">show </span><span class="s2">as </span><span class="s1">show_config</span>
+    <span class="s2">except </span><span class="s1">ImportError </span><span class="s2">as </span><span class="s1">e:</span>
+        <span class="s1">msg = </span><span class="s4">&quot;&quot;&quot;Error importing numpy: you should not try to import numpy from 
+        its source directory; please exit the numpy source tree, and relaunch 
+        your python interpreter from there.&quot;&quot;&quot;</span>
+        <span class="s2">raise </span><span class="s1">ImportError(msg) </span><span class="s2">from </span><span class="s1">e</span>
+
+    <span class="s1">__all__ = [</span><span class="s4">'ModuleDeprecationWarning'</span><span class="s2">,</span>
+               <span class="s4">'VisibleDeprecationWarning'</span><span class="s1">]</span>
+
+    <span class="s3"># mapping of {name: (value, deprecation_msg)}</span>
+    <span class="s1">__deprecated_attrs__ = {}</span>
+
+    <span class="s3"># Allow distributors to run custom init code</span>
+    <span class="s2">from </span><span class="s1">. </span><span class="s2">import </span><span class="s1">_distributor_init</span>
+
+    <span class="s2">from </span><span class="s1">. </span><span class="s2">import </span><span class="s1">core</span>
+    <span class="s2">from </span><span class="s1">.core </span><span class="s2">import </span><span class="s1">*</span>
+    <span class="s2">from </span><span class="s1">. </span><span class="s2">import </span><span class="s1">compat</span>
+    <span class="s2">from </span><span class="s1">. </span><span class="s2">import </span><span class="s1">lib</span>
+    <span class="s3"># NOTE: to be revisited following future namespace cleanup.</span>
+    <span class="s3"># See gh-14454 and gh-15672 for discussion.</span>
+    <span class="s2">from </span><span class="s1">.lib </span><span class="s2">import </span><span class="s1">*</span>
+
+    <span class="s2">from </span><span class="s1">. </span><span class="s2">import </span><span class="s1">linalg</span>
+    <span class="s2">from </span><span class="s1">. </span><span class="s2">import </span><span class="s1">fft</span>
+    <span class="s2">from </span><span class="s1">. </span><span class="s2">import </span><span class="s1">polynomial</span>
+    <span class="s2">from </span><span class="s1">. </span><span class="s2">import </span><span class="s1">random</span>
+    <span class="s2">from </span><span class="s1">. </span><span class="s2">import </span><span class="s1">ctypeslib</span>
+    <span class="s2">from </span><span class="s1">. </span><span class="s2">import </span><span class="s1">ma</span>
+    <span class="s2">from </span><span class="s1">. </span><span class="s2">import </span><span class="s1">matrixlib </span><span class="s2">as </span><span class="s1">_mat</span>
+    <span class="s2">from </span><span class="s1">.matrixlib </span><span class="s2">import </span><span class="s1">*</span>
+
+    <span class="s3"># Deprecations introduced in NumPy 1.20.0, 2020-06-06</span>
+    <span class="s2">import </span><span class="s1">builtins </span><span class="s2">as </span><span class="s1">_builtins</span>
+
+    <span class="s1">_msg = (</span>
+        <span class="s4">&quot;module 'numpy' has no attribute '{n}'.</span><span class="s2">\n</span><span class="s4">&quot;</span>
+        <span class="s4">&quot;`np.{n}` was a deprecated alias for the builtin `{n}`. &quot;</span>
+        <span class="s4">&quot;To avoid this error in existing code, use `{n}` by itself. &quot;</span>
+        <span class="s4">&quot;Doing this will not modify any behavior and is safe. {extended_msg}</span><span class="s2">\n</span><span class="s4">&quot;</span>
+        <span class="s4">&quot;The aliases was originally deprecated in NumPy 1.20; for more &quot;</span>
+        <span class="s4">&quot;details and guidance see the original release note at:</span><span class="s2">\n</span><span class="s4">&quot;</span>
+        <span class="s4">&quot;    https://numpy.org/devdocs/release/1.20.0-notes.html#deprecations&quot;</span><span class="s1">)</span>
+
+    <span class="s1">_specific_msg = (</span>
+        <span class="s4">&quot;If you specifically wanted the numpy scalar type, use `np.{}` here.&quot;</span><span class="s1">)</span>
+
+    <span class="s1">_int_extended_msg = (</span>
+        <span class="s4">&quot;When replacing `np.{}`, you may wish to use e.g. `np.int64` &quot;</span>
+        <span class="s4">&quot;or `np.int32` to specify the precision. If you wish to review &quot;</span>
+        <span class="s4">&quot;your current use, check the release note link for &quot;</span>
+        <span class="s4">&quot;additional information.&quot;</span><span class="s1">)</span>
+
+    <span class="s1">_type_info = [</span>
+        <span class="s1">(</span><span class="s4">&quot;object&quot;</span><span class="s2">, </span><span class="s4">&quot;&quot;</span><span class="s1">)</span><span class="s2">,  </span><span class="s3"># The NumPy scalar only exists by name.</span>
+        <span class="s1">(</span><span class="s4">&quot;bool&quot;</span><span class="s2">, </span><span class="s1">_specific_msg.format(</span><span class="s4">&quot;bool_&quot;</span><span class="s1">))</span><span class="s2">,</span>
+        <span class="s1">(</span><span class="s4">&quot;float&quot;</span><span class="s2">, </span><span class="s1">_specific_msg.format(</span><span class="s4">&quot;float64&quot;</span><span class="s1">))</span><span class="s2">,</span>
+        <span class="s1">(</span><span class="s4">&quot;complex&quot;</span><span class="s2">, </span><span class="s1">_specific_msg.format(</span><span class="s4">&quot;complex128&quot;</span><span class="s1">))</span><span class="s2">,</span>
+        <span class="s1">(</span><span class="s4">&quot;str&quot;</span><span class="s2">, </span><span class="s1">_specific_msg.format(</span><span class="s4">&quot;str_&quot;</span><span class="s1">))</span><span class="s2">,</span>
+        <span class="s1">(</span><span class="s4">&quot;int&quot;</span><span class="s2">, </span><span class="s1">_int_extended_msg.format(</span><span class="s4">&quot;int&quot;</span><span class="s1">))]</span>
+
+    <span class="s1">__former_attrs__ = {</span>
+         <span class="s1">n: _msg.format(n=n</span><span class="s2">, </span><span class="s1">extended_msg=extended_msg)</span>
+         <span class="s2">for </span><span class="s1">n</span><span class="s2">, </span><span class="s1">extended_msg </span><span class="s2">in </span><span class="s1">_type_info</span>
+     <span class="s1">}</span>
+
+    <span class="s3"># Future warning introduced in NumPy 1.24.0, 2022-11-17</span>
+    <span class="s1">_msg = (</span>
+        <span class="s4">&quot;`np.{n}` is a deprecated alias for `{an}`.  (Deprecated NumPy 1.24)&quot;</span><span class="s1">)</span>
+
+    <span class="s3"># Some of these are awkward (since `np.str` may be preferable in the long</span>
+    <span class="s3"># term), but overall the names ending in 0 seem undesireable</span>
+    <span class="s1">_type_info = [</span>
+        <span class="s1">(</span><span class="s4">&quot;bool8&quot;</span><span class="s2">, </span><span class="s1">bool_</span><span class="s2">, </span><span class="s4">&quot;np.bool_&quot;</span><span class="s1">)</span><span class="s2">,</span>
+        <span class="s1">(</span><span class="s4">&quot;int0&quot;</span><span class="s2">, </span><span class="s1">intp</span><span class="s2">, </span><span class="s4">&quot;np.intp&quot;</span><span class="s1">)</span><span class="s2">,</span>
+        <span class="s1">(</span><span class="s4">&quot;uint0&quot;</span><span class="s2">, </span><span class="s1">uintp</span><span class="s2">, </span><span class="s4">&quot;np.uintp&quot;</span><span class="s1">)</span><span class="s2">,</span>
+        <span class="s1">(</span><span class="s4">&quot;str0&quot;</span><span class="s2">, </span><span class="s1">str_</span><span class="s2">, </span><span class="s4">&quot;np.str_&quot;</span><span class="s1">)</span><span class="s2">,</span>
+        <span class="s1">(</span><span class="s4">&quot;bytes0&quot;</span><span class="s2">, </span><span class="s1">bytes_</span><span class="s2">, </span><span class="s4">&quot;np.bytes_&quot;</span><span class="s1">)</span><span class="s2">,</span>
+        <span class="s1">(</span><span class="s4">&quot;void0&quot;</span><span class="s2">, </span><span class="s1">void</span><span class="s2">, </span><span class="s4">&quot;np.void&quot;</span><span class="s1">)</span><span class="s2">,</span>
+        <span class="s1">(</span><span class="s4">&quot;object0&quot;</span><span class="s2">, </span><span class="s1">object_</span><span class="s2">,</span>
+            <span class="s4">&quot;`np.object0` is a deprecated alias for `np.object_`. &quot;</span>
+            <span class="s4">&quot;`object` can be used instead.  (Deprecated NumPy 1.24)&quot;</span><span class="s1">)]</span>
+
+    <span class="s3"># Some of these could be defined right away, but most were aliases to</span>
+    <span class="s3"># the Python objects and only removed in NumPy 1.24.  Defining them should</span>
+    <span class="s3"># probably wait for NumPy 1.26 or 2.0.</span>
+    <span class="s3"># When defined, these should possibly not be added to `__all__` to avoid</span>
+    <span class="s3"># import with `from numpy import *`.</span>
+    <span class="s1">__future_scalars__ = {</span><span class="s4">&quot;bool&quot;</span><span class="s2">, </span><span class="s4">&quot;long&quot;</span><span class="s2">, </span><span class="s4">&quot;ulong&quot;</span><span class="s2">, </span><span class="s4">&quot;str&quot;</span><span class="s2">, </span><span class="s4">&quot;bytes&quot;</span><span class="s2">, </span><span class="s4">&quot;object&quot;</span><span class="s1">}</span>
+
+    <span class="s1">__deprecated_attrs__.update({</span>
+        <span class="s1">n: (alias</span><span class="s2">, </span><span class="s1">_msg.format(n=n</span><span class="s2">, </span><span class="s1">an=an)) </span><span class="s2">for </span><span class="s1">n</span><span class="s2">, </span><span class="s1">alias</span><span class="s2">, </span><span class="s1">an </span><span class="s2">in </span><span class="s1">_type_info})</span>
+
+    <span class="s2">del </span><span class="s1">_msg</span><span class="s2">, </span><span class="s1">_type_info</span>
+
+    <span class="s2">from </span><span class="s1">.core </span><span class="s2">import </span><span class="s1">round</span><span class="s2">, </span><span class="s1">abs</span><span class="s2">, </span><span class="s1">max</span><span class="s2">, </span><span class="s1">min</span>
+    <span class="s3"># now that numpy modules are imported, can initialize limits</span>
+    <span class="s1">core.getlimits._register_known_types()</span>
+
+    <span class="s1">__all__.extend([</span><span class="s4">'__version__'</span><span class="s2">, </span><span class="s4">'show_config'</span><span class="s1">])</span>
+    <span class="s1">__all__.extend(core.__all__)</span>
+    <span class="s1">__all__.extend(_mat.__all__)</span>
+    <span class="s1">__all__.extend(lib.__all__)</span>
+    <span class="s1">__all__.extend([</span><span class="s4">'linalg'</span><span class="s2">, </span><span class="s4">'fft'</span><span class="s2">, </span><span class="s4">'random'</span><span class="s2">, </span><span class="s4">'ctypeslib'</span><span class="s2">, </span><span class="s4">'ma'</span><span class="s1">])</span>
+
+    <span class="s3"># Remove one of the two occurrences of `issubdtype`, which is exposed as</span>
+    <span class="s3"># both `numpy.core.issubdtype` and `numpy.lib.issubdtype`.</span>
+    <span class="s1">__all__.remove(</span><span class="s4">'issubdtype'</span><span class="s1">)</span>
+
+    <span class="s3"># These are exported by np.core, but are replaced by the builtins below</span>
+    <span class="s3"># remove them to ensure that we don't end up with `np.long == np.int_`,</span>
+    <span class="s3"># which would be a breaking change.</span>
+    <span class="s2">del </span><span class="s1">long</span><span class="s2">, </span><span class="s1">unicode</span>
+    <span class="s1">__all__.remove(</span><span class="s4">'long'</span><span class="s1">)</span>
+    <span class="s1">__all__.remove(</span><span class="s4">'unicode'</span><span class="s1">)</span>
+
+    <span class="s3"># Remove things that are in the numpy.lib but not in the numpy namespace</span>
+    <span class="s3"># Note that there is a test (numpy/tests/test_public_api.py:test_numpy_namespace)</span>
+    <span class="s3"># that prevents adding more things to the main namespace by accident.</span>
+    <span class="s3"># The list below will grow until the `from .lib import *` fixme above is</span>
+    <span class="s3"># taken care of</span>
+    <span class="s1">__all__.remove(</span><span class="s4">'Arrayterator'</span><span class="s1">)</span>
+    <span class="s2">del </span><span class="s1">Arrayterator</span>
+
+    <span class="s3"># These names were removed in NumPy 1.20.  For at least one release,</span>
+    <span class="s3"># attempts to access these names in the numpy namespace will trigger</span>
+    <span class="s3"># a warning, and calling the function will raise an exception.</span>
+    <span class="s1">_financial_names = [</span><span class="s4">'fv'</span><span class="s2">, </span><span class="s4">'ipmt'</span><span class="s2">, </span><span class="s4">'irr'</span><span class="s2">, </span><span class="s4">'mirr'</span><span class="s2">, </span><span class="s4">'nper'</span><span class="s2">, </span><span class="s4">'npv'</span><span class="s2">, </span><span class="s4">'pmt'</span><span class="s2">,</span>
+                        <span class="s4">'ppmt'</span><span class="s2">, </span><span class="s4">'pv'</span><span class="s2">, </span><span class="s4">'rate'</span><span class="s1">]</span>
+    <span class="s1">__expired_functions__ = {</span>
+        <span class="s1">name: (</span><span class="s4">f'In accordance with NEP 32, the function </span><span class="s2">{</span><span class="s1">name</span><span class="s2">} </span><span class="s4">was removed '</span>
+               <span class="s4">'from NumPy version 1.20.  A replacement for this function '</span>
+               <span class="s4">'is available in the numpy_financial library: '</span>
+               <span class="s4">'https://pypi.org/project/numpy-financial'</span><span class="s1">)</span>
+        <span class="s2">for </span><span class="s1">name </span><span class="s2">in </span><span class="s1">_financial_names}</span>
+
+    <span class="s3"># Filter out Cython harmless warnings</span>
+    <span class="s1">warnings.filterwarnings(</span><span class="s4">&quot;ignore&quot;</span><span class="s2">, </span><span class="s1">message=</span><span class="s4">&quot;numpy.dtype size changed&quot;</span><span class="s1">)</span>
+    <span class="s1">warnings.filterwarnings(</span><span class="s4">&quot;ignore&quot;</span><span class="s2">, </span><span class="s1">message=</span><span class="s4">&quot;numpy.ufunc size changed&quot;</span><span class="s1">)</span>
+    <span class="s1">warnings.filterwarnings(</span><span class="s4">&quot;ignore&quot;</span><span class="s2">, </span><span class="s1">message=</span><span class="s4">&quot;numpy.ndarray size changed&quot;</span><span class="s1">)</span>
+
+    <span class="s3"># oldnumeric and numarray were removed in 1.9. In case some packages import</span>
+    <span class="s3"># but do not use them, we define them here for backward compatibility.</span>
+    <span class="s1">oldnumeric = </span><span class="s4">'removed'</span>
+    <span class="s1">numarray = </span><span class="s4">'removed'</span>
+
+    <span class="s2">def </span><span class="s1">__getattr__(attr):</span>
+        <span class="s3"># Warn for expired attributes, and return a dummy function</span>
+        <span class="s3"># that always raises an exception.</span>
+        <span class="s2">import </span><span class="s1">warnings</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">msg = __expired_functions__[attr]</span>
+        <span class="s2">except </span><span class="s1">KeyError:</span>
+            <span class="s2">pass</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">warnings.warn(msg</span><span class="s2">, </span><span class="s1">DeprecationWarning</span><span class="s2">, </span><span class="s1">stacklevel=</span><span class="s5">2</span><span class="s1">)</span>
+
+            <span class="s2">def </span><span class="s1">_expired(*args</span><span class="s2">, </span><span class="s1">**kwds):</span>
+                <span class="s2">raise </span><span class="s1">RuntimeError(msg)</span>
+
+            <span class="s2">return </span><span class="s1">_expired</span>
+
+        <span class="s3"># Emit warnings for deprecated attributes</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">val</span><span class="s2">, </span><span class="s1">msg = __deprecated_attrs__[attr]</span>
+        <span class="s2">except </span><span class="s1">KeyError:</span>
+            <span class="s2">pass</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">warnings.warn(msg</span><span class="s2">, </span><span class="s1">DeprecationWarning</span><span class="s2">, </span><span class="s1">stacklevel=</span><span class="s5">2</span><span class="s1">)</span>
+            <span class="s2">return </span><span class="s1">val</span>
+
+        <span class="s2">if </span><span class="s1">attr </span><span class="s2">in </span><span class="s1">__future_scalars__:</span>
+            <span class="s3"># And future warnings for those that will change, but also give</span>
+            <span class="s3"># the AttributeError</span>
+            <span class="s1">warnings.warn(</span>
+                <span class="s4">f&quot;In the future `np.</span><span class="s2">{</span><span class="s1">attr</span><span class="s2">}</span><span class="s4">` will be defined as the &quot;</span>
+                <span class="s4">&quot;corresponding NumPy scalar.&quot;</span><span class="s2">, </span><span class="s1">FutureWarning</span><span class="s2">, </span><span class="s1">stacklevel=</span><span class="s5">2</span><span class="s1">)</span>
+
+        <span class="s2">if </span><span class="s1">attr </span><span class="s2">in </span><span class="s1">__former_attrs__:</span>
+            <span class="s2">raise </span><span class="s1">AttributeError(__former_attrs__[attr])</span>
+
+        <span class="s3"># Importing Tester requires importing all of UnitTest which is not a</span>
+        <span class="s3"># cheap import Since it is mainly used in test suits, we lazy import it</span>
+        <span class="s3"># here to save on the order of 10 ms of import time for most users</span>
+        <span class="s3">#</span>
+        <span class="s3"># The previous way Tester was imported also had a side effect of adding</span>
+        <span class="s3"># the full `numpy.testing` namespace</span>
+        <span class="s2">if </span><span class="s1">attr == </span><span class="s4">'testing'</span><span class="s1">:</span>
+            <span class="s2">import </span><span class="s1">numpy.testing </span><span class="s2">as </span><span class="s1">testing</span>
+            <span class="s2">return </span><span class="s1">testing</span>
+        <span class="s2">elif </span><span class="s1">attr == </span><span class="s4">'Tester'</span><span class="s1">:</span>
+            <span class="s2">from </span><span class="s1">.testing </span><span class="s2">import </span><span class="s1">Tester</span>
+            <span class="s2">return </span><span class="s1">Tester</span>
+
+        <span class="s2">raise </span><span class="s1">AttributeError(</span><span class="s4">&quot;module {!r} has no attribute &quot;</span>
+                             <span class="s4">&quot;{!r}&quot;</span><span class="s1">.format(__name__</span><span class="s2">, </span><span class="s1">attr))</span>
+
+    <span class="s2">def </span><span class="s1">__dir__():</span>
+        <span class="s1">public_symbols = globals().keys() | {</span><span class="s4">'Tester'</span><span class="s2">, </span><span class="s4">'testing'</span><span class="s1">}</span>
+        <span class="s1">public_symbols -= {</span>
+            <span class="s4">&quot;core&quot;</span><span class="s2">, </span><span class="s4">&quot;matrixlib&quot;</span><span class="s2">,</span>
+        <span class="s1">}</span>
+        <span class="s2">return </span><span class="s1">list(public_symbols)</span>
+
+    <span class="s3"># Pytest testing</span>
+    <span class="s2">from </span><span class="s1">numpy._pytesttester </span><span class="s2">import </span><span class="s1">PytestTester</span>
+    <span class="s1">test = PytestTester(__name__)</span>
+    <span class="s2">del </span><span class="s1">PytestTester</span>
+
+    <span class="s2">def </span><span class="s1">_sanity_check():</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Quick sanity checks for common bugs caused by environment. 
+        There are some cases e.g. with wrong BLAS ABI that cause wrong 
+        results under specific runtime conditions that are not necessarily 
+        achieved during test suite runs, and it is useful to catch those early. 
+ 
+        See https://github.com/numpy/numpy/issues/8577 and other 
+        similar bug reports. 
+ 
+        &quot;&quot;&quot;</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">x = ones(</span><span class="s5">2</span><span class="s2">, </span><span class="s1">dtype=float32)</span>
+            <span class="s2">if not </span><span class="s1">abs(x.dot(x) - float32(</span><span class="s5">2.0</span><span class="s1">)) &lt; </span><span class="s5">1e-5</span><span class="s1">:</span>
+                <span class="s2">raise </span><span class="s1">AssertionError()</span>
+        <span class="s2">except </span><span class="s1">AssertionError:</span>
+            <span class="s1">msg = (</span><span class="s4">&quot;The current Numpy installation ({!r}) fails to &quot;</span>
+                   <span class="s4">&quot;pass simple sanity checks. This can be caused for example &quot;</span>
+                   <span class="s4">&quot;by incorrect BLAS library being linked in, or by mixing &quot;</span>
+                   <span class="s4">&quot;package managers (pip, conda, apt, ...). Search closed &quot;</span>
+                   <span class="s4">&quot;numpy issues for similar problems.&quot;</span><span class="s1">)</span>
+            <span class="s2">raise </span><span class="s1">RuntimeError(msg.format(__file__)) </span><span class="s2">from None</span>
+
+    <span class="s1">_sanity_check()</span>
+    <span class="s2">del </span><span class="s1">_sanity_check</span>
+
+    <span class="s2">def </span><span class="s1">_mac_os_check():</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Quick Sanity check for Mac OS look for accelerate build bugs. 
+        Testing numpy polyfit calls init_dgelsd(LAPACK) 
+        &quot;&quot;&quot;</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">c = array([</span><span class="s5">3.</span><span class="s2">, </span><span class="s5">2.</span><span class="s2">, </span><span class="s5">1.</span><span class="s1">])</span>
+            <span class="s1">x = linspace(</span><span class="s5">0</span><span class="s2">, </span><span class="s5">2</span><span class="s2">, </span><span class="s5">5</span><span class="s1">)</span>
+            <span class="s1">y = polyval(c</span><span class="s2">, </span><span class="s1">x)</span>
+            <span class="s1">_ = polyfit(x</span><span class="s2">, </span><span class="s1">y</span><span class="s2">, </span><span class="s5">2</span><span class="s2">, </span><span class="s1">cov=</span><span class="s2">True</span><span class="s1">)</span>
+        <span class="s2">except </span><span class="s1">ValueError:</span>
+            <span class="s2">pass</span>
+
+    <span class="s2">if </span><span class="s1">sys.platform == </span><span class="s4">&quot;darwin&quot;</span><span class="s1">:</span>
+        <span class="s2">with </span><span class="s1">warnings.catch_warnings(record=</span><span class="s2">True</span><span class="s1">) </span><span class="s2">as </span><span class="s1">w:</span>
+            <span class="s1">_mac_os_check()</span>
+            <span class="s3"># Throw runtime error, if the test failed Check for warning and error_message</span>
+            <span class="s1">error_message = </span><span class="s4">&quot;&quot;</span>
+            <span class="s2">if </span><span class="s1">len(w) &gt; </span><span class="s5">0</span><span class="s1">:</span>
+                <span class="s1">error_message = </span><span class="s4">&quot;{}: {}&quot;</span><span class="s1">.format(w[-</span><span class="s5">1</span><span class="s1">].category.__name__</span><span class="s2">, </span><span class="s1">str(w[-</span><span class="s5">1</span><span class="s1">].message))</span>
+                <span class="s1">msg = (</span>
+                    <span class="s4">&quot;Polyfit sanity test emitted a warning, most likely due &quot;</span>
+                    <span class="s4">&quot;to using a buggy Accelerate backend.&quot;</span>
+                    <span class="s4">&quot;</span><span class="s2">\n</span><span class="s4">If you compiled yourself, more information is available at:&quot;</span>
+                    <span class="s4">&quot;</span><span class="s2">\n</span><span class="s4">https://numpy.org/doc/stable/user/building.html#accelerated-blas-lapack-libraries&quot;</span>
+                    <span class="s4">&quot;</span><span class="s2">\n</span><span class="s4">Otherwise report this to the vendor &quot;</span>
+                    <span class="s4">&quot;that provided NumPy.</span><span class="s2">\n</span><span class="s4">{}</span><span class="s2">\n</span><span class="s4">&quot;</span><span class="s1">.format(error_message))</span>
+                <span class="s2">raise </span><span class="s1">RuntimeError(msg)</span>
+    <span class="s2">del </span><span class="s1">_mac_os_check</span>
+
+    <span class="s3"># We usually use madvise hugepages support, but on some old kernels it</span>
+    <span class="s3"># is slow and thus better avoided.</span>
+    <span class="s3"># Specifically kernel version 4.6 had a bug fix which probably fixed this:</span>
+    <span class="s3"># https://github.com/torvalds/linux/commit/7cf91a98e607c2f935dbcc177d70011e95b8faff</span>
+    <span class="s2">import </span><span class="s1">os</span>
+    <span class="s1">use_hugepage = os.environ.get(</span><span class="s4">&quot;NUMPY_MADVISE_HUGEPAGE&quot;</span><span class="s2">, None</span><span class="s1">)</span>
+    <span class="s2">if </span><span class="s1">sys.platform == </span><span class="s4">&quot;linux&quot; </span><span class="s2">and </span><span class="s1">use_hugepage </span><span class="s2">is None</span><span class="s1">:</span>
+        <span class="s3"># If there is an issue with parsing the kernel version,</span>
+        <span class="s3"># set use_hugepages to 0. Usage of LooseVersion will handle</span>
+        <span class="s3"># the kernel version parsing better, but avoided since it</span>
+        <span class="s3"># will increase the import time. See: #16679 for related discussion.</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">use_hugepage = </span><span class="s5">1</span>
+            <span class="s1">kernel_version = os.uname().release.split(</span><span class="s4">&quot;.&quot;</span><span class="s1">)[:</span><span class="s5">2</span><span class="s1">]</span>
+            <span class="s1">kernel_version = tuple(int(v) </span><span class="s2">for </span><span class="s1">v </span><span class="s2">in </span><span class="s1">kernel_version)</span>
+            <span class="s2">if </span><span class="s1">kernel_version &lt; (</span><span class="s5">4</span><span class="s2">, </span><span class="s5">6</span><span class="s1">):</span>
+                <span class="s1">use_hugepage = </span><span class="s5">0</span>
+        <span class="s2">except </span><span class="s1">ValueError:</span>
+            <span class="s1">use_hugepages = </span><span class="s5">0</span>
+    <span class="s2">elif </span><span class="s1">use_hugepage </span><span class="s2">is None</span><span class="s1">:</span>
+        <span class="s3"># This is not Linux, so it should not matter, just enable anyway</span>
+        <span class="s1">use_hugepage = </span><span class="s5">1</span>
+    <span class="s2">else</span><span class="s1">:</span>
+        <span class="s1">use_hugepage = int(use_hugepage)</span>
+
+    <span class="s3"># Note that this will currently only make a difference on Linux</span>
+    <span class="s1">core.multiarray._set_madvise_hugepage(use_hugepage)</span>
+
+    <span class="s3"># Give a warning if NumPy is reloaded or imported on a sub-interpreter</span>
+    <span class="s3"># We do this from python, since the C-module may not be reloaded and</span>
+    <span class="s3"># it is tidier organized.</span>
+    <span class="s1">core.multiarray._multiarray_umath._reload_guard()</span>
+
+    <span class="s1">core._set_promotion_state(os.environ.get(</span><span class="s4">&quot;NPY_PROMOTION_STATE&quot;</span><span class="s2">, </span><span class="s4">&quot;legacy&quot;</span><span class="s1">))</span>
+
+    <span class="s3"># Tell PyInstaller where to find hook-numpy.py</span>
+    <span class="s2">def </span><span class="s1">_pyinstaller_hooks_dir():</span>
+        <span class="s2">from </span><span class="s1">pathlib </span><span class="s2">import </span><span class="s1">Path</span>
+        <span class="s2">return </span><span class="s1">[str(Path(__file__).with_name(</span><span class="s4">&quot;_pyinstaller&quot;</span><span class="s1">).resolve())]</span>
+
+    <span class="s3"># Remove symbols imported for internal use</span>
+    <span class="s2">del </span><span class="s1">os</span>
+
+
+<span class="s3"># get the version using versioneer</span>
+<span class="s2">from </span><span class="s1">.version </span><span class="s2">import </span><span class="s1">__version__</span><span class="s2">, </span><span class="s1">git_revision </span><span class="s2">as </span><span class="s1">__git_version__</span>
+
+<span class="s3"># Remove symbols imported for internal use</span>
+<span class="s2">del </span><span class="s1">sys</span><span class="s2">, </span><span class="s1">warnings</span>
+</pre>
+</body>
+</html>

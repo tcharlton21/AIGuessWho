@@ -1,0 +1,112 @@
+<html>
+<head>
+<title>test_variables.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cc7832;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #6a8759;}
+.s3 { color: #6897bb;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+test_variables.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">os</span>
+<span class="s0">import </span><span class="s1">pickle</span>
+<span class="s0">import </span><span class="s1">unittest</span>
+<span class="s0">from </span><span class="s1">tkinter </span><span class="s0">import </span><span class="s1">TclError</span><span class="s0">, </span><span class="s1">Tk</span>
+<span class="s0">from </span><span class="s1">tkmacosx </span><span class="s0">import </span><span class="s1">ColorVar</span><span class="s0">, </span><span class="s1">DictVar</span><span class="s0">, </span><span class="s1">SaveVar</span>
+<span class="s0">from </span><span class="s1">test.support </span><span class="s0">import </span><span class="s1">findfile</span>
+
+
+<span class="s0">class </span><span class="s1">TestBase(unittest.TestCase):</span>
+
+    <span class="s1">_filename = findfile(</span><span class="s2">'testSaveVar.pkl'</span><span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">checkSavefile(self</span><span class="s0">, </span><span class="s1">var</span><span class="s0">, </span><span class="s1">filename):</span>
+        <span class="s0">with </span><span class="s1">open(filename</span><span class="s0">, </span><span class="s2">'rb'</span><span class="s1">) </span><span class="s0">as </span><span class="s1">file:</span>
+            <span class="s1">d = pickle.load(file)</span>
+            <span class="s0">if </span><span class="s1">d.get(str(var)):</span>
+                <span class="s0">return </span><span class="s1">d[str(var)]</span>
+
+    <span class="s0">def </span><span class="s1">remove_file(self):</span>
+        <span class="s0">if </span><span class="s1">os.path.exists(self._filename):</span>
+            <span class="s1">os.remove(self._filename)</span>
+
+    <span class="s0">def </span><span class="s1">setUp(self):</span>
+        <span class="s1">self.remove_file()</span>
+        <span class="s1">self.root = Tk()</span>
+
+    <span class="s0">def </span><span class="s1">tearDown(self):</span>
+        <span class="s0">del </span><span class="s1">self.root</span>
+        <span class="s1">self.remove_file()</span>
+
+
+<span class="s0">class </span><span class="s1">TestColorVar(TestBase):</span>
+
+    <span class="s0">def </span><span class="s1">test_default(self):</span>
+        <span class="s1">v = ColorVar(self.root)</span>
+        <span class="s1">self.assertEqual(</span><span class="s2">&quot;white&quot;</span><span class="s0">, </span><span class="s1">v.get())</span>
+
+    <span class="s0">def </span><span class="s1">test_get(self):</span>
+        <span class="s1">v = ColorVar(self.root</span><span class="s0">, </span><span class="s2">&quot;#333&quot;</span><span class="s0">, </span><span class="s2">&quot;name&quot;</span><span class="s1">)</span>
+        <span class="s1">self.assertEqual(</span><span class="s2">&quot;#333&quot;</span><span class="s0">, </span><span class="s1">v.get())</span>
+        <span class="s1">self.root.globalsetvar(</span><span class="s2">&quot;name&quot;</span><span class="s0">, </span><span class="s2">&quot;#ff0000&quot;</span><span class="s1">)</span>
+        <span class="s1">self.assertEqual(</span><span class="s2">&quot;#ff0000&quot;</span><span class="s0">, </span><span class="s1">v.get())</span>
+
+    <span class="s0">def </span><span class="s1">test_invalid_value(self):</span>
+        <span class="s1">v = ColorVar(self.root</span><span class="s0">, </span><span class="s2">&quot;#00ff00&quot;</span><span class="s0">, </span><span class="s2">&quot;name&quot;</span><span class="s1">)</span>
+        <span class="s1">self.root.globalsetvar(</span><span class="s2">&quot;name&quot;</span><span class="s0">, </span><span class="s2">&quot;value&quot;</span><span class="s1">)</span>
+        <span class="s0">with </span><span class="s1">self.assertRaises((ValueError</span><span class="s0">, </span><span class="s1">TclError)):</span>
+            <span class="s1">v.get()</span>
+
+
+<span class="s0">class </span><span class="s1">TestDictVar(TestBase):</span>
+
+    <span class="s0">def </span><span class="s1">test_default(self):</span>
+        <span class="s1">v = DictVar(self.root)</span>
+        <span class="s1">self.assertEqual({}</span><span class="s0">, </span><span class="s1">v.get())</span>
+
+    <span class="s0">def </span><span class="s1">test_get(self):</span>
+        <span class="s1">v = DictVar(self.root</span><span class="s0">, </span><span class="s1">{</span><span class="s2">'1'</span><span class="s1">: </span><span class="s2">'abc'</span><span class="s1">}</span><span class="s0">, </span><span class="s2">'name'</span><span class="s1">)</span>
+        <span class="s1">self.assertEqual({</span><span class="s2">'1'</span><span class="s1">: </span><span class="s2">'abc'</span><span class="s1">}</span><span class="s0">, </span><span class="s1">v.get())</span>
+        <span class="s1">self.root.globalsetvar(</span><span class="s2">&quot;name&quot;</span><span class="s0">, </span><span class="s1">{</span><span class="s3">2</span><span class="s1">: </span><span class="s2">'xyz'</span><span class="s1">})</span>
+        <span class="s1">self.assertEqual({</span><span class="s3">2</span><span class="s1">: </span><span class="s2">'xyz'</span><span class="s1">}</span><span class="s0">, </span><span class="s1">v.get())</span>
+
+
+<span class="s0">class </span><span class="s1">TestSaveVar(TestBase):</span>
+    <span class="s1">_default = </span><span class="s2">'blue'</span>
+
+    <span class="s0">def </span><span class="s1">_create(self</span><span class="s0">, </span><span class="s1">**kw):</span>
+        <span class="s0">return </span><span class="s1">SaveVar(</span>
+            <span class="s1">var=kw.get(</span><span class="s2">'var'</span><span class="s0">, </span><span class="s1">ColorVar)</span><span class="s0">,</span>
+            <span class="s1">master=kw.get(</span><span class="s2">'master'</span><span class="s0">, </span><span class="s1">self.root)</span><span class="s0">,</span>
+            <span class="s1">value=kw.get(</span><span class="s2">'value'</span><span class="s0">, </span><span class="s1">self._default)</span><span class="s0">,</span>
+            <span class="s1">name=kw.get(</span><span class="s2">'name'</span><span class="s0">, </span><span class="s2">'name'</span><span class="s1">)</span><span class="s0">,</span>
+            <span class="s1">filename=kw.get(</span><span class="s2">'filename'</span><span class="s0">, </span><span class="s1">self._filename))</span>
+
+    <span class="s0">def </span><span class="s1">test_default(self):</span>
+        <span class="s1">v = self._create()</span>
+        <span class="s1">self.assertEqual(</span>
+            <span class="s1">self._default</span><span class="s0">, </span><span class="s1">self.checkSavefile(v</span><span class="s0">, </span><span class="s1">self._filename)[</span><span class="s3">0</span><span class="s1">])</span>
+        <span class="s1">self.assertEqual(</span>
+            <span class="s1">self._default</span><span class="s0">, </span><span class="s1">self.checkSavefile(v</span><span class="s0">, </span><span class="s1">self._filename)[</span><span class="s3">1</span><span class="s1">])</span>
+
+    <span class="s0">def </span><span class="s1">test_saved_value(self):</span>
+        <span class="s1">v = self._create()</span>
+        <span class="s1">v.set(</span><span class="s2">'#15234d'</span><span class="s1">)</span>
+        <span class="s1">self.assertEqual(</span><span class="s2">&quot;#15234d&quot;</span><span class="s0">, </span><span class="s1">v.get())</span>
+        <span class="s1">self.assertEqual(v.get()</span><span class="s0">, </span><span class="s1">self.checkSavefile(v</span><span class="s0">, </span><span class="s1">self._filename)[</span><span class="s3">0</span><span class="s1">])</span>
+        <span class="s1">self.assertEqual(</span>
+            <span class="s1">self._default</span><span class="s0">, </span><span class="s1">self.checkSavefile(v</span><span class="s0">, </span><span class="s1">self._filename)[</span><span class="s3">1</span><span class="s1">])</span>
+
+    <span class="s0">def </span><span class="s1">test_file_created(self):</span>
+        <span class="s1">v = self._create()</span>
+        <span class="s1">file = open(self._filename</span><span class="s0">, </span><span class="s2">'r'</span><span class="s1">)</span>
+</pre>
+</body>
+</html>

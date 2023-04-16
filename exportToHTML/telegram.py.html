@@ -1,0 +1,175 @@
+<html>
+<head>
+<title>telegram.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #629755; font-style: italic;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #cc7832;}
+.s3 { color: #6a8759;}
+.s4 { color: #6897bb;}
+.s5 { color: #808080;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+telegram.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+Sends updates to a Telegram bot. 
+ 
+Usage: 
+&gt;&gt;&gt; from tqdm.contrib.telegram import tqdm, trange 
+&gt;&gt;&gt; for i in trange(10, token='{token}', chat_id='{chat_id}'): 
+...     ... 
+ 
+![screenshot](https://img.tqdm.ml/screenshot-telegram.gif) 
+&quot;&quot;&quot;</span>
+<span class="s2">from </span><span class="s1">os </span><span class="s2">import </span><span class="s1">getenv</span>
+<span class="s2">from </span><span class="s1">warnings </span><span class="s2">import </span><span class="s1">warn</span>
+
+<span class="s2">from </span><span class="s1">requests </span><span class="s2">import </span><span class="s1">Session</span>
+
+<span class="s2">from </span><span class="s1">..auto </span><span class="s2">import </span><span class="s1">tqdm </span><span class="s2">as </span><span class="s1">tqdm_auto</span>
+<span class="s2">from </span><span class="s1">..std </span><span class="s2">import </span><span class="s1">TqdmWarning</span>
+<span class="s2">from </span><span class="s1">.utils_worker </span><span class="s2">import </span><span class="s1">MonoWorker</span>
+
+<span class="s1">__author__ = {</span><span class="s3">&quot;github.com/&quot;</span><span class="s1">: [</span><span class="s3">&quot;casperdcl&quot;</span><span class="s1">]}</span>
+<span class="s1">__all__ = [</span><span class="s3">'TelegramIO'</span><span class="s2">, </span><span class="s3">'tqdm_telegram'</span><span class="s2">, </span><span class="s3">'ttgrange'</span><span class="s2">, </span><span class="s3">'tqdm'</span><span class="s2">, </span><span class="s3">'trange'</span><span class="s1">]</span>
+
+
+<span class="s2">class </span><span class="s1">TelegramIO(MonoWorker):</span>
+    <span class="s0">&quot;&quot;&quot;Non-blocking file-like IO using a Telegram Bot.&quot;&quot;&quot;</span>
+    <span class="s1">API = </span><span class="s3">'https://api.telegram.org/bot'</span>
+
+    <span class="s2">def </span><span class="s1">__init__(self</span><span class="s2">, </span><span class="s1">token</span><span class="s2">, </span><span class="s1">chat_id):</span>
+        <span class="s0">&quot;&quot;&quot;Creates a new message in the given `chat_id`.&quot;&quot;&quot;</span>
+        <span class="s1">super(TelegramIO</span><span class="s2">, </span><span class="s1">self).__init__()</span>
+        <span class="s1">self.token = token</span>
+        <span class="s1">self.chat_id = chat_id</span>
+        <span class="s1">self.session = Session()</span>
+        <span class="s1">self.text = self.__class__.__name__</span>
+        <span class="s1">self.message_id</span>
+
+    <span class="s1">@property</span>
+    <span class="s2">def </span><span class="s1">message_id(self):</span>
+        <span class="s2">if </span><span class="s1">hasattr(self</span><span class="s2">, </span><span class="s3">'_message_id'</span><span class="s1">):</span>
+            <span class="s2">return </span><span class="s1">self._message_id</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">res = self.session.post(</span>
+                <span class="s1">self.API + </span><span class="s3">'%s/sendMessage' </span><span class="s1">% self.token</span><span class="s2">,</span>
+                <span class="s1">data={</span><span class="s3">'text'</span><span class="s1">: </span><span class="s3">'`' </span><span class="s1">+ self.text + </span><span class="s3">'`'</span><span class="s2">, </span><span class="s3">'chat_id'</span><span class="s1">: self.chat_id</span><span class="s2">,</span>
+                      <span class="s3">'parse_mode'</span><span class="s1">: </span><span class="s3">'MarkdownV2'</span><span class="s1">}).json()</span>
+        <span class="s2">except </span><span class="s1">Exception </span><span class="s2">as </span><span class="s1">e:</span>
+            <span class="s1">tqdm_auto.write(str(e))</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s2">if </span><span class="s1">res.get(</span><span class="s3">'error_code'</span><span class="s1">) == </span><span class="s4">429</span><span class="s1">:</span>
+                <span class="s1">warn(</span><span class="s3">&quot;Creation rate limit: try increasing `mininterval`.&quot;</span><span class="s2">,</span>
+                     <span class="s1">TqdmWarning</span><span class="s2">, </span><span class="s1">stacklevel=</span><span class="s4">2</span><span class="s1">)</span>
+            <span class="s2">else</span><span class="s1">:</span>
+                <span class="s1">self._message_id = res[</span><span class="s3">'result'</span><span class="s1">][</span><span class="s3">'message_id'</span><span class="s1">]</span>
+                <span class="s2">return </span><span class="s1">self._message_id</span>
+
+    <span class="s2">def </span><span class="s1">write(self</span><span class="s2">, </span><span class="s1">s):</span>
+        <span class="s0">&quot;&quot;&quot;Replaces internal `message_id`'s text with `s`.&quot;&quot;&quot;</span>
+        <span class="s2">if not </span><span class="s1">s:</span>
+            <span class="s1">s = </span><span class="s3">&quot;...&quot;</span>
+        <span class="s1">s = s.replace(</span><span class="s3">'</span><span class="s2">\r</span><span class="s3">'</span><span class="s2">, </span><span class="s3">''</span><span class="s1">).strip()</span>
+        <span class="s2">if </span><span class="s1">s == self.text:</span>
+            <span class="s2">return  </span><span class="s5"># avoid duplicate message Bot error</span>
+        <span class="s1">message_id = self.message_id</span>
+        <span class="s2">if </span><span class="s1">message_id </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s2">return</span>
+        <span class="s1">self.text = s</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">future = self.submit(</span>
+                <span class="s1">self.session.post</span><span class="s2">, </span><span class="s1">self.API + </span><span class="s3">'%s/editMessageText' </span><span class="s1">% self.token</span><span class="s2">,</span>
+                <span class="s1">data={</span><span class="s3">'text'</span><span class="s1">: </span><span class="s3">'`' </span><span class="s1">+ s + </span><span class="s3">'`'</span><span class="s2">, </span><span class="s3">'chat_id'</span><span class="s1">: self.chat_id</span><span class="s2">,</span>
+                      <span class="s3">'message_id'</span><span class="s1">: message_id</span><span class="s2">, </span><span class="s3">'parse_mode'</span><span class="s1">: </span><span class="s3">'MarkdownV2'</span><span class="s1">})</span>
+        <span class="s2">except </span><span class="s1">Exception </span><span class="s2">as </span><span class="s1">e:</span>
+            <span class="s1">tqdm_auto.write(str(e))</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s2">return </span><span class="s1">future</span>
+
+    <span class="s2">def </span><span class="s1">delete(self):</span>
+        <span class="s0">&quot;&quot;&quot;Deletes internal `message_id`.&quot;&quot;&quot;</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">future = self.submit(</span>
+                <span class="s1">self.session.post</span><span class="s2">, </span><span class="s1">self.API + </span><span class="s3">'%s/deleteMessage' </span><span class="s1">% self.token</span><span class="s2">,</span>
+                <span class="s1">data={</span><span class="s3">'chat_id'</span><span class="s1">: self.chat_id</span><span class="s2">, </span><span class="s3">'message_id'</span><span class="s1">: self.message_id})</span>
+        <span class="s2">except </span><span class="s1">Exception </span><span class="s2">as </span><span class="s1">e:</span>
+            <span class="s1">tqdm_auto.write(str(e))</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s2">return </span><span class="s1">future</span>
+
+
+<span class="s2">class </span><span class="s1">tqdm_telegram(tqdm_auto):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Standard `tqdm.auto.tqdm` but also sends updates to a Telegram Bot. 
+    May take a few seconds to create (`__init__`). 
+ 
+    - create a bot &lt;https://core.telegram.org/bots#6-botfather&gt; 
+    - copy its `{token}` 
+    - add the bot to a chat and send it a message such as `/start` 
+    - go to &lt;https://api.telegram.org/bot`{token}`/getUpdates&gt; to find out 
+      the `{chat_id}` 
+    - paste the `{token}` &amp; `{chat_id}` below 
+ 
+    &gt;&gt;&gt; from tqdm.contrib.telegram import tqdm, trange 
+    &gt;&gt;&gt; for i in tqdm(iterable, token='{token}', chat_id='{chat_id}'): 
+    ...     ... 
+    &quot;&quot;&quot;</span>
+    <span class="s2">def </span><span class="s1">__init__(self</span><span class="s2">, </span><span class="s1">*args</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Parameters 
+        ---------- 
+        token  : str, required. Telegram token 
+            [default: ${TQDM_TELEGRAM_TOKEN}]. 
+        chat_id  : str, required. Telegram chat ID 
+            [default: ${TQDM_TELEGRAM_CHAT_ID}]. 
+ 
+        See `tqdm.auto.tqdm.__init__` for other parameters. 
+        &quot;&quot;&quot;</span>
+        <span class="s2">if not </span><span class="s1">kwargs.get(</span><span class="s3">'disable'</span><span class="s1">):</span>
+            <span class="s1">kwargs = kwargs.copy()</span>
+            <span class="s1">self.tgio = TelegramIO(</span>
+                <span class="s1">kwargs.pop(</span><span class="s3">'token'</span><span class="s2">, </span><span class="s1">getenv(</span><span class="s3">'TQDM_TELEGRAM_TOKEN'</span><span class="s1">))</span><span class="s2">,</span>
+                <span class="s1">kwargs.pop(</span><span class="s3">'chat_id'</span><span class="s2">, </span><span class="s1">getenv(</span><span class="s3">'TQDM_TELEGRAM_CHAT_ID'</span><span class="s1">)))</span>
+        <span class="s1">super(tqdm_telegram</span><span class="s2">, </span><span class="s1">self).__init__(*args</span><span class="s2">, </span><span class="s1">**kwargs)</span>
+
+    <span class="s2">def </span><span class="s1">display(self</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+        <span class="s1">super(tqdm_telegram</span><span class="s2">, </span><span class="s1">self).display(**kwargs)</span>
+        <span class="s1">fmt = self.format_dict</span>
+        <span class="s2">if </span><span class="s1">fmt.get(</span><span class="s3">'bar_format'</span><span class="s2">, None</span><span class="s1">):</span>
+            <span class="s1">fmt[</span><span class="s3">'bar_format'</span><span class="s1">] = fmt[</span><span class="s3">'bar_format'</span><span class="s1">].replace(</span>
+                <span class="s3">'&lt;bar/&gt;'</span><span class="s2">, </span><span class="s3">'{bar:10u}'</span><span class="s1">).replace(</span><span class="s3">'{bar}'</span><span class="s2">, </span><span class="s3">'{bar:10u}'</span><span class="s1">)</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">fmt[</span><span class="s3">'bar_format'</span><span class="s1">] = </span><span class="s3">'{l_bar}{bar:10u}{r_bar}'</span>
+        <span class="s1">self.tgio.write(self.format_meter(**fmt))</span>
+
+    <span class="s2">def </span><span class="s1">clear(self</span><span class="s2">, </span><span class="s1">*args</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+        <span class="s1">super(tqdm_telegram</span><span class="s2">, </span><span class="s1">self).clear(*args</span><span class="s2">, </span><span class="s1">**kwargs)</span>
+        <span class="s2">if not </span><span class="s1">self.disable:</span>
+            <span class="s1">self.tgio.write(</span><span class="s3">&quot;&quot;</span><span class="s1">)</span>
+
+    <span class="s2">def </span><span class="s1">close(self):</span>
+        <span class="s2">if </span><span class="s1">self.disable:</span>
+            <span class="s2">return</span>
+        <span class="s1">super(tqdm_telegram</span><span class="s2">, </span><span class="s1">self).close()</span>
+        <span class="s2">if not </span><span class="s1">(self.leave </span><span class="s2">or </span><span class="s1">(self.leave </span><span class="s2">is None and </span><span class="s1">self.pos == </span><span class="s4">0</span><span class="s1">)):</span>
+            <span class="s1">self.tgio.delete()</span>
+
+
+<span class="s2">def </span><span class="s1">ttgrange(*args</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+    <span class="s0">&quot;&quot;&quot;Shortcut for `tqdm.contrib.telegram.tqdm(range(*args), **kwargs)`.&quot;&quot;&quot;</span>
+    <span class="s2">return </span><span class="s1">tqdm_telegram(range(*args)</span><span class="s2">, </span><span class="s1">**kwargs)</span>
+
+
+<span class="s5"># Aliases</span>
+<span class="s1">tqdm = tqdm_telegram</span>
+<span class="s1">trange = ttgrange</span>
+</pre>
+</body>
+</html>

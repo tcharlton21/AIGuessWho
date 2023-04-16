@@ -1,0 +1,198 @@
+<html>
+<head>
+<title>_compat.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #808080;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #cc7832;}
+.s3 { color: #6a8759;}
+.s4 { color: #6897bb;}
+.s5 { color: #629755; font-style: italic;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_compat.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># SPDX-License-Identifier: MIT</span>
+
+
+<span class="s2">import </span><span class="s1">inspect</span>
+<span class="s2">import </span><span class="s1">platform</span>
+<span class="s2">import </span><span class="s1">sys</span>
+<span class="s2">import </span><span class="s1">threading</span>
+<span class="s2">import </span><span class="s1">types</span>
+<span class="s2">import </span><span class="s1">warnings</span>
+
+<span class="s2">from </span><span class="s1">collections.abc </span><span class="s2">import </span><span class="s1">Mapping</span><span class="s2">, </span><span class="s1">Sequence  </span><span class="s0"># noqa</span>
+
+
+<span class="s1">PYPY = platform.python_implementation() == </span><span class="s3">&quot;PyPy&quot;</span>
+<span class="s1">PY310 = sys.version_info[:</span><span class="s4">2</span><span class="s1">] &gt;= (</span><span class="s4">3</span><span class="s2">, </span><span class="s4">10</span><span class="s1">)</span>
+<span class="s1">PY_3_12_PLUS = sys.version_info[:</span><span class="s4">2</span><span class="s1">] &gt;= (</span><span class="s4">3</span><span class="s2">, </span><span class="s4">12</span><span class="s1">)</span>
+
+
+<span class="s2">def </span><span class="s1">just_warn(*args</span><span class="s2">, </span><span class="s1">**kw):</span>
+    <span class="s1">warnings.warn(</span>
+        <span class="s3">&quot;Running interpreter doesn't sufficiently support code object &quot;</span>
+        <span class="s3">&quot;introspection.  Some features like bare super() or accessing &quot;</span>
+        <span class="s3">&quot;__class__ will not work with slotted classes.&quot;</span><span class="s2">,</span>
+        <span class="s1">RuntimeWarning</span><span class="s2">,</span>
+        <span class="s1">stacklevel=</span><span class="s4">2</span><span class="s2">,</span>
+    <span class="s1">)</span>
+
+
+<span class="s2">class </span><span class="s1">_AnnotationExtractor:</span>
+    <span class="s5">&quot;&quot;&quot; 
+    Extract type annotations from a callable, returning None whenever there 
+    is none. 
+    &quot;&quot;&quot;</span>
+
+    <span class="s1">__slots__ = [</span><span class="s3">&quot;sig&quot;</span><span class="s1">]</span>
+
+    <span class="s2">def </span><span class="s1">__init__(self</span><span class="s2">, </span><span class="s1">callable):</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">self.sig = inspect.signature(callable)</span>
+        <span class="s2">except </span><span class="s1">(ValueError</span><span class="s2">, </span><span class="s1">TypeError):  </span><span class="s0"># inspect failed</span>
+            <span class="s1">self.sig = </span><span class="s2">None</span>
+
+    <span class="s2">def </span><span class="s1">get_first_param_type(self):</span>
+        <span class="s5">&quot;&quot;&quot; 
+        Return the type annotation of the first argument if it's not empty. 
+        &quot;&quot;&quot;</span>
+        <span class="s2">if not </span><span class="s1">self.sig:</span>
+            <span class="s2">return None</span>
+
+        <span class="s1">params = list(self.sig.parameters.values())</span>
+        <span class="s2">if </span><span class="s1">params </span><span class="s2">and </span><span class="s1">params[</span><span class="s4">0</span><span class="s1">].annotation </span><span class="s2">is not </span><span class="s1">inspect.Parameter.empty:</span>
+            <span class="s2">return </span><span class="s1">params[</span><span class="s4">0</span><span class="s1">].annotation</span>
+
+        <span class="s2">return None</span>
+
+    <span class="s2">def </span><span class="s1">get_return_type(self):</span>
+        <span class="s5">&quot;&quot;&quot; 
+        Return the return type if it's not empty. 
+        &quot;&quot;&quot;</span>
+        <span class="s2">if </span><span class="s1">(</span>
+            <span class="s1">self.sig</span>
+            <span class="s2">and </span><span class="s1">self.sig.return_annotation </span><span class="s2">is not </span><span class="s1">inspect.Signature.empty</span>
+        <span class="s1">):</span>
+            <span class="s2">return </span><span class="s1">self.sig.return_annotation</span>
+
+        <span class="s2">return None</span>
+
+
+<span class="s2">def </span><span class="s1">make_set_closure_cell():</span>
+    <span class="s5">&quot;&quot;&quot;Return a function of two arguments (cell, value) which sets 
+    the value stored in the closure cell `cell` to `value`. 
+    &quot;&quot;&quot;</span>
+    <span class="s0"># pypy makes this easy. (It also supports the logic below, but</span>
+    <span class="s0"># why not do the easy/fast thing?)</span>
+    <span class="s2">if </span><span class="s1">PYPY:</span>
+
+        <span class="s2">def </span><span class="s1">set_closure_cell(cell</span><span class="s2">, </span><span class="s1">value):</span>
+            <span class="s1">cell.__setstate__((value</span><span class="s2">,</span><span class="s1">))</span>
+
+        <span class="s2">return </span><span class="s1">set_closure_cell</span>
+
+    <span class="s0"># Otherwise gotta do it the hard way.</span>
+
+    <span class="s0"># Create a function that will set its first cellvar to `value`.</span>
+    <span class="s2">def </span><span class="s1">set_first_cellvar_to(value):</span>
+        <span class="s1">x = value</span>
+        <span class="s2">return</span>
+
+        <span class="s0"># This function will be eliminated as dead code, but</span>
+        <span class="s0"># not before its reference to `x` forces `x` to be</span>
+        <span class="s0"># represented as a closure cell rather than a local.</span>
+        <span class="s2">def </span><span class="s1">force_x_to_be_a_cell():  </span><span class="s0"># pragma: no cover</span>
+            <span class="s2">return </span><span class="s1">x</span>
+
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s0"># Extract the code object and make sure our assumptions about</span>
+        <span class="s0"># the closure behavior are correct.</span>
+        <span class="s1">co = set_first_cellvar_to.__code__</span>
+        <span class="s2">if </span><span class="s1">co.co_cellvars != (</span><span class="s3">&quot;x&quot;</span><span class="s2">,</span><span class="s1">) </span><span class="s2">or </span><span class="s1">co.co_freevars != ():</span>
+            <span class="s2">raise </span><span class="s1">AssertionError  </span><span class="s0"># pragma: no cover</span>
+
+        <span class="s0"># Convert this code object to a code object that sets the</span>
+        <span class="s0"># function's first _freevar_ (not cellvar) to the argument.</span>
+        <span class="s2">if </span><span class="s1">sys.version_info &gt;= (</span><span class="s4">3</span><span class="s2">, </span><span class="s4">8</span><span class="s1">):</span>
+
+            <span class="s2">def </span><span class="s1">set_closure_cell(cell</span><span class="s2">, </span><span class="s1">value):</span>
+                <span class="s1">cell.cell_contents = value</span>
+
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">args = [co.co_argcount]</span>
+            <span class="s1">args.append(co.co_kwonlyargcount)</span>
+            <span class="s1">args.extend(</span>
+                <span class="s1">[</span>
+                    <span class="s1">co.co_nlocals</span><span class="s2">,</span>
+                    <span class="s1">co.co_stacksize</span><span class="s2">,</span>
+                    <span class="s1">co.co_flags</span><span class="s2">,</span>
+                    <span class="s1">co.co_code</span><span class="s2">,</span>
+                    <span class="s1">co.co_consts</span><span class="s2">,</span>
+                    <span class="s1">co.co_names</span><span class="s2">,</span>
+                    <span class="s1">co.co_varnames</span><span class="s2">,</span>
+                    <span class="s1">co.co_filename</span><span class="s2">,</span>
+                    <span class="s1">co.co_name</span><span class="s2">,</span>
+                    <span class="s1">co.co_firstlineno</span><span class="s2">,</span>
+                    <span class="s1">co.co_lnotab</span><span class="s2">,</span>
+                    <span class="s0"># These two arguments are reversed:</span>
+                    <span class="s1">co.co_cellvars</span><span class="s2">,</span>
+                    <span class="s1">co.co_freevars</span><span class="s2">,</span>
+                <span class="s1">]</span>
+            <span class="s1">)</span>
+            <span class="s1">set_first_freevar_code = types.CodeType(*args)</span>
+
+            <span class="s2">def </span><span class="s1">set_closure_cell(cell</span><span class="s2">, </span><span class="s1">value):</span>
+                <span class="s0"># Create a function using the set_first_freevar_code,</span>
+                <span class="s0"># whose first closure cell is `cell`. Calling it will</span>
+                <span class="s0"># change the value of that cell.</span>
+                <span class="s1">setter = types.FunctionType(</span>
+                    <span class="s1">set_first_freevar_code</span><span class="s2">, </span><span class="s1">{}</span><span class="s2">, </span><span class="s3">&quot;setter&quot;</span><span class="s2">, </span><span class="s1">()</span><span class="s2">, </span><span class="s1">(cell</span><span class="s2">,</span><span class="s1">)</span>
+                <span class="s1">)</span>
+                <span class="s0"># And call it to set the cell.</span>
+                <span class="s1">setter(value)</span>
+
+        <span class="s0"># Make sure it works on this interpreter:</span>
+        <span class="s2">def </span><span class="s1">make_func_with_cell():</span>
+            <span class="s1">x = </span><span class="s2">None</span>
+
+            <span class="s2">def </span><span class="s1">func():</span>
+                <span class="s2">return </span><span class="s1">x  </span><span class="s0"># pragma: no cover</span>
+
+            <span class="s2">return </span><span class="s1">func</span>
+
+        <span class="s1">cell = make_func_with_cell().__closure__[</span><span class="s4">0</span><span class="s1">]</span>
+        <span class="s1">set_closure_cell(cell</span><span class="s2">, </span><span class="s4">100</span><span class="s1">)</span>
+        <span class="s2">if </span><span class="s1">cell.cell_contents != </span><span class="s4">100</span><span class="s1">:</span>
+            <span class="s2">raise </span><span class="s1">AssertionError  </span><span class="s0"># pragma: no cover</span>
+
+    <span class="s2">except </span><span class="s1">Exception:</span>
+        <span class="s2">return </span><span class="s1">just_warn</span>
+    <span class="s2">else</span><span class="s1">:</span>
+        <span class="s2">return </span><span class="s1">set_closure_cell</span>
+
+
+<span class="s1">set_closure_cell = make_set_closure_cell()</span>
+
+<span class="s0"># Thread-local global to track attrs instances which are already being repr'd.</span>
+<span class="s0"># This is needed because there is no other (thread-safe) way to pass info</span>
+<span class="s0"># about the instances that are already being repr'd through the call stack</span>
+<span class="s0"># in order to ensure we don't perform infinite recursion.</span>
+<span class="s0">#</span>
+<span class="s0"># For instance, if an instance contains a dict which contains that instance,</span>
+<span class="s0"># we need to know that we're already repr'ing the outside instance from within</span>
+<span class="s0"># the dict's repr() call.</span>
+<span class="s0">#</span>
+<span class="s0"># This lives here rather than in _make.py so that the functions in _make.py</span>
+<span class="s0"># don't have a direct reference to the thread-local in their globals dict.</span>
+<span class="s0"># If they have such a reference, it breaks cloudpickle.</span>
+<span class="s1">repr_context = threading.local()</span>
+</pre>
+</body>
+</html>

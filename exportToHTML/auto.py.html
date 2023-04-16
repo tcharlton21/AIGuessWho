@@ -1,0 +1,61 @@
+<html>
+<head>
+<title>auto.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #629755; font-style: italic;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #cc7832;}
+.s3 { color: #6a8759;}
+.s4 { color: #808080;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+auto.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+Enables multiple commonly used features. 
+ 
+Method resolution order: 
+ 
+- `tqdm.autonotebook` without import warnings 
+- `tqdm.asyncio` 
+- `tqdm.std` base class 
+ 
+Usage: 
+&gt;&gt;&gt; from tqdm.auto import trange, tqdm 
+&gt;&gt;&gt; for i in trange(10): 
+...     ... 
+&quot;&quot;&quot;</span>
+<span class="s2">import </span><span class="s1">warnings</span>
+
+<span class="s2">from </span><span class="s1">.std </span><span class="s2">import </span><span class="s1">TqdmExperimentalWarning</span>
+
+<span class="s2">with </span><span class="s1">warnings.catch_warnings():</span>
+    <span class="s1">warnings.simplefilter(</span><span class="s3">&quot;ignore&quot;</span><span class="s2">, </span><span class="s1">category=TqdmExperimentalWarning)</span>
+    <span class="s2">from </span><span class="s1">.autonotebook </span><span class="s2">import </span><span class="s1">tqdm </span><span class="s2">as </span><span class="s1">notebook_tqdm</span>
+
+<span class="s2">from </span><span class="s1">.asyncio </span><span class="s2">import </span><span class="s1">tqdm </span><span class="s2">as </span><span class="s1">asyncio_tqdm</span>
+<span class="s2">from </span><span class="s1">.std </span><span class="s2">import </span><span class="s1">tqdm </span><span class="s2">as </span><span class="s1">std_tqdm</span>
+
+<span class="s2">if </span><span class="s1">notebook_tqdm != std_tqdm:</span>
+    <span class="s2">class </span><span class="s1">tqdm(notebook_tqdm</span><span class="s2">, </span><span class="s1">asyncio_tqdm):  </span><span class="s4"># pylint: disable=inconsistent-mro</span>
+        <span class="s2">pass</span>
+<span class="s2">else</span><span class="s1">:</span>
+    <span class="s1">tqdm = asyncio_tqdm</span>
+
+
+<span class="s2">def </span><span class="s1">trange(*args</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    A shortcut for `tqdm.auto.tqdm(range(*args), **kwargs)`. 
+    &quot;&quot;&quot;</span>
+    <span class="s2">return </span><span class="s1">tqdm(range(*args)</span><span class="s2">, </span><span class="s1">**kwargs)</span>
+
+
+<span class="s1">__all__ = [</span><span class="s3">&quot;tqdm&quot;</span><span class="s2">, </span><span class="s3">&quot;trange&quot;</span><span class="s1">]</span>
+</pre>
+</body>
+</html>

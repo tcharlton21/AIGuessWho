@@ -1,0 +1,343 @@
+<html>
+<head>
+<title>notebook.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #629755; font-style: italic;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #808080;}
+.s3 { color: #cc7832;}
+.s4 { color: #6897bb;}
+.s5 { color: #6a8759;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+notebook.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+IPython/Jupyter Notebook progressbar decorator for iterators. 
+Includes a default `range` iterator printing to `stderr`. 
+ 
+Usage: 
+&gt;&gt;&gt; from tqdm.notebook import trange, tqdm 
+&gt;&gt;&gt; for i in trange(10): 
+...     ... 
+&quot;&quot;&quot;</span>
+<span class="s2"># import compatibility functions and utilities</span>
+<span class="s3">import </span><span class="s1">re</span>
+<span class="s3">import </span><span class="s1">sys</span>
+<span class="s3">from </span><span class="s1">weakref </span><span class="s3">import </span><span class="s1">proxy</span>
+
+<span class="s2"># to inherit from the tqdm class</span>
+<span class="s3">from </span><span class="s1">.std </span><span class="s3">import </span><span class="s1">tqdm </span><span class="s3">as </span><span class="s1">std_tqdm</span>
+
+<span class="s3">if True</span><span class="s1">:  </span><span class="s2"># pragma: no cover</span>
+    <span class="s2"># import IPython/Jupyter base widget and display utilities</span>
+    <span class="s1">IPY = </span><span class="s4">0</span>
+    <span class="s3">try</span><span class="s1">:  </span><span class="s2"># IPython 4.x</span>
+        <span class="s3">import </span><span class="s1">ipywidgets</span>
+        <span class="s1">IPY = </span><span class="s4">4</span>
+    <span class="s3">except </span><span class="s1">ImportError:  </span><span class="s2"># IPython 3.x / 2.x</span>
+        <span class="s1">IPY = </span><span class="s4">32</span>
+        <span class="s3">import </span><span class="s1">warnings</span>
+        <span class="s3">with </span><span class="s1">warnings.catch_warnings():</span>
+            <span class="s1">warnings.filterwarnings(</span>
+                <span class="s5">'ignore'</span><span class="s3">, </span><span class="s1">message=</span><span class="s5">&quot;.*The `IPython.html` package has been deprecated.*&quot;</span><span class="s1">)</span>
+            <span class="s3">try</span><span class="s1">:</span>
+                <span class="s3">import </span><span class="s1">IPython.html.widgets </span><span class="s3">as </span><span class="s1">ipywidgets  </span><span class="s2"># NOQA: F401</span>
+            <span class="s3">except </span><span class="s1">ImportError:</span>
+                <span class="s3">pass</span>
+
+    <span class="s3">try</span><span class="s1">:  </span><span class="s2"># IPython 4.x / 3.x</span>
+        <span class="s3">if </span><span class="s1">IPY == </span><span class="s4">32</span><span class="s1">:</span>
+            <span class="s3">from </span><span class="s1">IPython.html.widgets </span><span class="s3">import </span><span class="s1">HTML</span>
+            <span class="s3">from </span><span class="s1">IPython.html.widgets </span><span class="s3">import </span><span class="s1">FloatProgress </span><span class="s3">as </span><span class="s1">IProgress</span>
+            <span class="s3">from </span><span class="s1">IPython.html.widgets </span><span class="s3">import </span><span class="s1">HBox</span>
+            <span class="s1">IPY = </span><span class="s4">3</span>
+        <span class="s3">else</span><span class="s1">:</span>
+            <span class="s3">from </span><span class="s1">ipywidgets </span><span class="s3">import </span><span class="s1">HTML</span>
+            <span class="s3">from </span><span class="s1">ipywidgets </span><span class="s3">import </span><span class="s1">FloatProgress </span><span class="s3">as </span><span class="s1">IProgress</span>
+            <span class="s3">from </span><span class="s1">ipywidgets </span><span class="s3">import </span><span class="s1">HBox</span>
+    <span class="s3">except </span><span class="s1">ImportError:</span>
+        <span class="s3">try</span><span class="s1">:  </span><span class="s2"># IPython 2.x</span>
+            <span class="s3">from </span><span class="s1">IPython.html.widgets </span><span class="s3">import </span><span class="s1">HTML</span>
+            <span class="s3">from </span><span class="s1">IPython.html.widgets </span><span class="s3">import </span><span class="s1">ContainerWidget </span><span class="s3">as </span><span class="s1">HBox</span>
+            <span class="s3">from </span><span class="s1">IPython.html.widgets </span><span class="s3">import </span><span class="s1">FloatProgressWidget </span><span class="s3">as </span><span class="s1">IProgress</span>
+            <span class="s1">IPY = </span><span class="s4">2</span>
+        <span class="s3">except </span><span class="s1">ImportError:</span>
+            <span class="s1">IPY = </span><span class="s4">0</span>
+            <span class="s1">IProgress = </span><span class="s3">None</span>
+            <span class="s1">HBox = object</span>
+
+    <span class="s3">try</span><span class="s1">:</span>
+        <span class="s3">from </span><span class="s1">IPython.display </span><span class="s3">import </span><span class="s1">display  </span><span class="s2"># , clear_output</span>
+    <span class="s3">except </span><span class="s1">ImportError:</span>
+        <span class="s3">pass</span>
+
+    <span class="s2"># HTML encoding</span>
+    <span class="s3">try</span><span class="s1">:  </span><span class="s2"># Py3</span>
+        <span class="s3">from </span><span class="s1">html </span><span class="s3">import </span><span class="s1">escape</span>
+    <span class="s3">except </span><span class="s1">ImportError:  </span><span class="s2"># Py2</span>
+        <span class="s3">from </span><span class="s1">cgi </span><span class="s3">import </span><span class="s1">escape</span>
+
+<span class="s1">__author__ = {</span><span class="s5">&quot;github.com/&quot;</span><span class="s1">: [</span><span class="s5">&quot;lrq3000&quot;</span><span class="s3">, </span><span class="s5">&quot;casperdcl&quot;</span><span class="s3">, </span><span class="s5">&quot;alexanderkuk&quot;</span><span class="s1">]}</span>
+<span class="s1">__all__ = [</span><span class="s5">'tqdm_notebook'</span><span class="s3">, </span><span class="s5">'tnrange'</span><span class="s3">, </span><span class="s5">'tqdm'</span><span class="s3">, </span><span class="s5">'trange'</span><span class="s1">]</span>
+<span class="s1">WARN_NOIPYW = (</span><span class="s5">&quot;IProgress not found. Please update jupyter and ipywidgets.&quot;</span>
+               <span class="s5">&quot; See https://ipywidgets.readthedocs.io/en/stable&quot;</span>
+               <span class="s5">&quot;/user_install.html&quot;</span><span class="s1">)</span>
+
+
+<span class="s3">class </span><span class="s1">TqdmHBox(HBox):</span>
+    <span class="s0">&quot;&quot;&quot;`ipywidgets.HBox` with a pretty representation&quot;&quot;&quot;</span>
+    <span class="s3">def </span><span class="s1">_json_(self</span><span class="s3">, </span><span class="s1">pretty=</span><span class="s3">None</span><span class="s1">):</span>
+        <span class="s1">pbar = getattr(self</span><span class="s3">, </span><span class="s5">'pbar'</span><span class="s3">, None</span><span class="s1">)</span>
+        <span class="s3">if </span><span class="s1">pbar </span><span class="s3">is None</span><span class="s1">:</span>
+            <span class="s3">return </span><span class="s1">{}</span>
+        <span class="s1">d = pbar.format_dict</span>
+        <span class="s3">if </span><span class="s1">pretty </span><span class="s3">is not None</span><span class="s1">:</span>
+            <span class="s1">d[</span><span class="s5">&quot;ascii&quot;</span><span class="s1">] = </span><span class="s3">not </span><span class="s1">pretty</span>
+        <span class="s3">return </span><span class="s1">d</span>
+
+    <span class="s3">def </span><span class="s1">__repr__(self</span><span class="s3">, </span><span class="s1">pretty=</span><span class="s3">False</span><span class="s1">):</span>
+        <span class="s1">pbar = getattr(self</span><span class="s3">, </span><span class="s5">'pbar'</span><span class="s3">, None</span><span class="s1">)</span>
+        <span class="s3">if </span><span class="s1">pbar </span><span class="s3">is None</span><span class="s1">:</span>
+            <span class="s3">return </span><span class="s1">super(TqdmHBox</span><span class="s3">, </span><span class="s1">self).__repr__()</span>
+        <span class="s3">return </span><span class="s1">pbar.format_meter(**self._json_(pretty))</span>
+
+    <span class="s3">def </span><span class="s1">_repr_pretty_(self</span><span class="s3">, </span><span class="s1">pp</span><span class="s3">, </span><span class="s1">*_</span><span class="s3">, </span><span class="s1">**__):</span>
+        <span class="s1">pp.text(self.__repr__(</span><span class="s3">True</span><span class="s1">))</span>
+
+
+<span class="s3">class </span><span class="s1">tqdm_notebook(std_tqdm):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Experimental IPython/Jupyter Notebook widget using tqdm! 
+    &quot;&quot;&quot;</span>
+    <span class="s1">@staticmethod</span>
+    <span class="s3">def </span><span class="s1">status_printer(_</span><span class="s3">, </span><span class="s1">total=</span><span class="s3">None, </span><span class="s1">desc=</span><span class="s3">None, </span><span class="s1">ncols=</span><span class="s3">None</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Manage the printing of an IPython/Jupyter Notebook progress bar widget. 
+        &quot;&quot;&quot;</span>
+        <span class="s2"># Fallback to text bar if there's no total</span>
+        <span class="s2"># DEPRECATED: replaced with an 'info' style bar</span>
+        <span class="s2"># if not total:</span>
+        <span class="s2">#    return super(tqdm_notebook, tqdm_notebook).status_printer(file)</span>
+
+        <span class="s2"># fp = file</span>
+
+        <span class="s2"># Prepare IPython progress bar</span>
+        <span class="s3">if </span><span class="s1">IProgress </span><span class="s3">is None</span><span class="s1">:  </span><span class="s2"># #187 #451 #558 #872</span>
+            <span class="s3">raise </span><span class="s1">ImportError(WARN_NOIPYW)</span>
+        <span class="s3">if </span><span class="s1">total:</span>
+            <span class="s1">pbar = IProgress(min=</span><span class="s4">0</span><span class="s3">, </span><span class="s1">max=total)</span>
+        <span class="s3">else</span><span class="s1">:  </span><span class="s2"># No total? Show info style bar with no progress tqdm status</span>
+            <span class="s1">pbar = IProgress(min=</span><span class="s4">0</span><span class="s3">, </span><span class="s1">max=</span><span class="s4">1</span><span class="s1">)</span>
+            <span class="s1">pbar.value = </span><span class="s4">1</span>
+            <span class="s1">pbar.bar_style = </span><span class="s5">'info'</span>
+            <span class="s3">if </span><span class="s1">ncols </span><span class="s3">is None</span><span class="s1">:</span>
+                <span class="s1">pbar.layout.width = </span><span class="s5">&quot;20px&quot;</span>
+
+        <span class="s1">ltext = HTML()</span>
+        <span class="s1">rtext = HTML()</span>
+        <span class="s3">if </span><span class="s1">desc:</span>
+            <span class="s1">ltext.value = desc</span>
+        <span class="s1">container = TqdmHBox(children=[ltext</span><span class="s3">, </span><span class="s1">pbar</span><span class="s3">, </span><span class="s1">rtext])</span>
+        <span class="s2"># Prepare layout</span>
+        <span class="s3">if </span><span class="s1">ncols </span><span class="s3">is not None</span><span class="s1">:  </span><span class="s2"># use default style of ipywidgets</span>
+            <span class="s2"># ncols could be 100, &quot;100px&quot;, &quot;100%&quot;</span>
+            <span class="s1">ncols = str(ncols)  </span><span class="s2"># ipywidgets only accepts string</span>
+            <span class="s3">try</span><span class="s1">:</span>
+                <span class="s3">if </span><span class="s1">int(ncols) &gt; </span><span class="s4">0</span><span class="s1">:  </span><span class="s2"># isnumeric and positive</span>
+                    <span class="s1">ncols += </span><span class="s5">'px'</span>
+            <span class="s3">except </span><span class="s1">ValueError:</span>
+                <span class="s3">pass</span>
+            <span class="s1">pbar.layout.flex = </span><span class="s5">'2'</span>
+            <span class="s1">container.layout.width = ncols</span>
+            <span class="s1">container.layout.display = </span><span class="s5">'inline-flex'</span>
+            <span class="s1">container.layout.flex_flow = </span><span class="s5">'row wrap'</span>
+
+        <span class="s3">return </span><span class="s1">container</span>
+
+    <span class="s3">def </span><span class="s1">display(self</span><span class="s3">, </span><span class="s1">msg=</span><span class="s3">None, </span><span class="s1">pos=</span><span class="s3">None,</span>
+                <span class="s2"># additional signals</span>
+                <span class="s1">close=</span><span class="s3">False, </span><span class="s1">bar_style=</span><span class="s3">None, </span><span class="s1">check_delay=</span><span class="s3">True</span><span class="s1">):</span>
+        <span class="s2"># Note: contrary to native tqdm, msg='' does NOT clear bar</span>
+        <span class="s2"># goal is to keep all infos if error happens so user knows</span>
+        <span class="s2"># at which iteration the loop failed.</span>
+
+        <span class="s2"># Clear previous output (really necessary?)</span>
+        <span class="s2"># clear_output(wait=1)</span>
+
+        <span class="s3">if not </span><span class="s1">msg </span><span class="s3">and not </span><span class="s1">close:</span>
+            <span class="s1">d = self.format_dict</span>
+            <span class="s2"># remove {bar}</span>
+            <span class="s1">d[</span><span class="s5">'bar_format'</span><span class="s1">] = (d[</span><span class="s5">'bar_format'</span><span class="s1">] </span><span class="s3">or </span><span class="s5">&quot;{l_bar}&lt;bar/&gt;{r_bar}&quot;</span><span class="s1">).replace(</span>
+                <span class="s5">&quot;{bar}&quot;</span><span class="s3">, </span><span class="s5">&quot;&lt;bar/&gt;&quot;</span><span class="s1">)</span>
+            <span class="s1">msg = self.format_meter(**d)</span>
+
+        <span class="s1">ltext</span><span class="s3">, </span><span class="s1">pbar</span><span class="s3">, </span><span class="s1">rtext = self.container.children</span>
+        <span class="s1">pbar.value = self.n</span>
+
+        <span class="s3">if </span><span class="s1">msg:</span>
+            <span class="s2"># html escape special characters (like '&amp;')</span>
+            <span class="s3">if </span><span class="s5">'&lt;bar/&gt;' </span><span class="s3">in </span><span class="s1">msg:</span>
+                <span class="s1">left</span><span class="s3">, </span><span class="s1">right = map(escape</span><span class="s3">, </span><span class="s1">re.split(</span><span class="s5">r'\|?&lt;bar/&gt;\|?'</span><span class="s3">, </span><span class="s1">msg</span><span class="s3">, </span><span class="s4">1</span><span class="s1">))</span>
+            <span class="s3">else</span><span class="s1">:</span>
+                <span class="s1">left</span><span class="s3">, </span><span class="s1">right = </span><span class="s5">''</span><span class="s3">, </span><span class="s1">escape(msg)</span>
+
+            <span class="s2"># Update description</span>
+            <span class="s1">ltext.value = left</span>
+            <span class="s2"># never clear the bar (signal: msg='')</span>
+            <span class="s3">if </span><span class="s1">right:</span>
+                <span class="s1">rtext.value = right</span>
+
+        <span class="s2"># Change bar style</span>
+        <span class="s3">if </span><span class="s1">bar_style:</span>
+            <span class="s2"># Hack-ish way to avoid the danger bar_style being overridden by</span>
+            <span class="s2"># success because the bar gets closed after the error...</span>
+            <span class="s3">if </span><span class="s1">pbar.bar_style != </span><span class="s5">'danger' </span><span class="s3">or </span><span class="s1">bar_style != </span><span class="s5">'success'</span><span class="s1">:</span>
+                <span class="s1">pbar.bar_style = bar_style</span>
+
+        <span class="s2"># Special signal to close the bar</span>
+        <span class="s3">if </span><span class="s1">close </span><span class="s3">and </span><span class="s1">pbar.bar_style != </span><span class="s5">'danger'</span><span class="s1">:  </span><span class="s2"># hide only if no error</span>
+            <span class="s3">try</span><span class="s1">:</span>
+                <span class="s1">self.container.close()</span>
+            <span class="s3">except </span><span class="s1">AttributeError:</span>
+                <span class="s1">self.container.visible = </span><span class="s3">False</span>
+            <span class="s1">self.container.layout.visibility = </span><span class="s5">'hidden'  </span><span class="s2"># IPYW&gt;=8</span>
+
+        <span class="s3">if </span><span class="s1">check_delay </span><span class="s3">and </span><span class="s1">self.delay &gt; </span><span class="s4">0 </span><span class="s3">and not </span><span class="s1">self.displayed:</span>
+            <span class="s1">display(self.container)</span>
+            <span class="s1">self.displayed = </span><span class="s3">True</span>
+
+    <span class="s1">@property</span>
+    <span class="s3">def </span><span class="s1">colour(self):</span>
+        <span class="s3">if </span><span class="s1">hasattr(self</span><span class="s3">, </span><span class="s5">'container'</span><span class="s1">):</span>
+            <span class="s3">return </span><span class="s1">self.container.children[-</span><span class="s4">2</span><span class="s1">].style.bar_color</span>
+
+    <span class="s1">@colour.setter</span>
+    <span class="s3">def </span><span class="s1">colour(self</span><span class="s3">, </span><span class="s1">bar_color):</span>
+        <span class="s3">if </span><span class="s1">hasattr(self</span><span class="s3">, </span><span class="s5">'container'</span><span class="s1">):</span>
+            <span class="s1">self.container.children[-</span><span class="s4">2</span><span class="s1">].style.bar_color = bar_color</span>
+
+    <span class="s3">def </span><span class="s1">__init__(self</span><span class="s3">, </span><span class="s1">*args</span><span class="s3">, </span><span class="s1">**kwargs):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Supports the usual `tqdm.tqdm` parameters as well as those listed below. 
+ 
+        Parameters 
+        ---------- 
+        display  : Whether to call `display(self.container)` immediately 
+            [default: True]. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">kwargs = kwargs.copy()</span>
+        <span class="s2"># Setup default output</span>
+        <span class="s1">file_kwarg = kwargs.get(</span><span class="s5">'file'</span><span class="s3">, </span><span class="s1">sys.stderr)</span>
+        <span class="s3">if </span><span class="s1">file_kwarg </span><span class="s3">is </span><span class="s1">sys.stderr </span><span class="s3">or </span><span class="s1">file_kwarg </span><span class="s3">is None</span><span class="s1">:</span>
+            <span class="s1">kwargs[</span><span class="s5">'file'</span><span class="s1">] = sys.stdout  </span><span class="s2"># avoid the red block in IPython</span>
+
+        <span class="s2"># Initialize parent class + avoid printing by using gui=True</span>
+        <span class="s1">kwargs[</span><span class="s5">'gui'</span><span class="s1">] = </span><span class="s3">True</span>
+        <span class="s2"># convert disable = None to False</span>
+        <span class="s1">kwargs[</span><span class="s5">'disable'</span><span class="s1">] = bool(kwargs.get(</span><span class="s5">'disable'</span><span class="s3">, False</span><span class="s1">))</span>
+        <span class="s1">colour = kwargs.pop(</span><span class="s5">'colour'</span><span class="s3">, None</span><span class="s1">)</span>
+        <span class="s1">display_here = kwargs.pop(</span><span class="s5">'display'</span><span class="s3">, True</span><span class="s1">)</span>
+        <span class="s1">super(tqdm_notebook</span><span class="s3">, </span><span class="s1">self).__init__(*args</span><span class="s3">, </span><span class="s1">**kwargs)</span>
+        <span class="s3">if </span><span class="s1">self.disable </span><span class="s3">or not </span><span class="s1">kwargs[</span><span class="s5">'gui'</span><span class="s1">]:</span>
+            <span class="s1">self.disp = </span><span class="s3">lambda </span><span class="s1">*_</span><span class="s3">, </span><span class="s1">**__: </span><span class="s3">None</span>
+            <span class="s3">return</span>
+
+        <span class="s2"># Get bar width</span>
+        <span class="s1">self.ncols = </span><span class="s5">'100%' </span><span class="s3">if </span><span class="s1">self.dynamic_ncols </span><span class="s3">else </span><span class="s1">kwargs.get(</span><span class="s5">&quot;ncols&quot;</span><span class="s3">, None</span><span class="s1">)</span>
+
+        <span class="s2"># Replace with IPython progress bar display (with correct total)</span>
+        <span class="s1">unit_scale = </span><span class="s4">1 </span><span class="s3">if </span><span class="s1">self.unit_scale </span><span class="s3">is True else </span><span class="s1">self.unit_scale </span><span class="s3">or </span><span class="s4">1</span>
+        <span class="s1">total = self.total * unit_scale </span><span class="s3">if </span><span class="s1">self.total </span><span class="s3">else </span><span class="s1">self.total</span>
+        <span class="s1">self.container = self.status_printer(self.fp</span><span class="s3">, </span><span class="s1">total</span><span class="s3">, </span><span class="s1">self.desc</span><span class="s3">, </span><span class="s1">self.ncols)</span>
+        <span class="s1">self.container.pbar = proxy(self)</span>
+        <span class="s1">self.displayed = </span><span class="s3">False</span>
+        <span class="s3">if </span><span class="s1">display_here </span><span class="s3">and </span><span class="s1">self.delay &lt;= </span><span class="s4">0</span><span class="s1">:</span>
+            <span class="s1">display(self.container)</span>
+            <span class="s1">self.displayed = </span><span class="s3">True</span>
+        <span class="s1">self.disp = self.display</span>
+        <span class="s1">self.colour = colour</span>
+
+        <span class="s2"># Print initial bar state</span>
+        <span class="s3">if not </span><span class="s1">self.disable:</span>
+            <span class="s1">self.display(check_delay=</span><span class="s3">False</span><span class="s1">)</span>
+
+    <span class="s3">def </span><span class="s1">__iter__(self):</span>
+        <span class="s3">try</span><span class="s1">:</span>
+            <span class="s1">it = super(tqdm_notebook</span><span class="s3">, </span><span class="s1">self).__iter__()</span>
+            <span class="s3">for </span><span class="s1">obj </span><span class="s3">in </span><span class="s1">it:</span>
+                <span class="s2"># return super(tqdm...) will not catch exception</span>
+                <span class="s3">yield </span><span class="s1">obj</span>
+        <span class="s2"># NB: except ... [ as ...] breaks IPython async KeyboardInterrupt</span>
+        <span class="s3">except</span><span class="s1">:  </span><span class="s2"># NOQA</span>
+            <span class="s1">self.disp(bar_style=</span><span class="s5">'danger'</span><span class="s1">)</span>
+            <span class="s3">raise</span>
+        <span class="s2"># NB: don't `finally: close()`</span>
+        <span class="s2"># since this could be a shared bar which the user will `reset()`</span>
+
+    <span class="s3">def </span><span class="s1">update(self</span><span class="s3">, </span><span class="s1">n=</span><span class="s4">1</span><span class="s1">):</span>
+        <span class="s3">try</span><span class="s1">:</span>
+            <span class="s3">return </span><span class="s1">super(tqdm_notebook</span><span class="s3">, </span><span class="s1">self).update(n=n)</span>
+        <span class="s2"># NB: except ... [ as ...] breaks IPython async KeyboardInterrupt</span>
+        <span class="s3">except</span><span class="s1">:  </span><span class="s2"># NOQA</span>
+            <span class="s2"># cannot catch KeyboardInterrupt when using manual tqdm</span>
+            <span class="s2"># as the interrupt will most likely happen on another statement</span>
+            <span class="s1">self.disp(bar_style=</span><span class="s5">'danger'</span><span class="s1">)</span>
+            <span class="s3">raise</span>
+        <span class="s2"># NB: don't `finally: close()`</span>
+        <span class="s2"># since this could be a shared bar which the user will `reset()`</span>
+
+    <span class="s3">def </span><span class="s1">close(self):</span>
+        <span class="s3">if </span><span class="s1">self.disable:</span>
+            <span class="s3">return</span>
+        <span class="s1">super(tqdm_notebook</span><span class="s3">, </span><span class="s1">self).close()</span>
+        <span class="s2"># Try to detect if there was an error or KeyboardInterrupt</span>
+        <span class="s2"># in manual mode: if n &lt; total, things probably got wrong</span>
+        <span class="s3">if </span><span class="s1">self.total </span><span class="s3">and </span><span class="s1">self.n &lt; self.total:</span>
+            <span class="s1">self.disp(bar_style=</span><span class="s5">'danger'</span><span class="s3">, </span><span class="s1">check_delay=</span><span class="s3">False</span><span class="s1">)</span>
+        <span class="s3">else</span><span class="s1">:</span>
+            <span class="s3">if </span><span class="s1">self.leave:</span>
+                <span class="s1">self.disp(bar_style=</span><span class="s5">'success'</span><span class="s3">, </span><span class="s1">check_delay=</span><span class="s3">False</span><span class="s1">)</span>
+            <span class="s3">else</span><span class="s1">:</span>
+                <span class="s1">self.disp(close=</span><span class="s3">True, </span><span class="s1">check_delay=</span><span class="s3">False</span><span class="s1">)</span>
+
+    <span class="s3">def </span><span class="s1">clear(self</span><span class="s3">, </span><span class="s1">*_</span><span class="s3">, </span><span class="s1">**__):</span>
+        <span class="s3">pass</span>
+
+    <span class="s3">def </span><span class="s1">reset(self</span><span class="s3">, </span><span class="s1">total=</span><span class="s3">None</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Resets to 0 iterations for repeated use. 
+ 
+        Consider combining with `leave=True`. 
+ 
+        Parameters 
+        ---------- 
+        total  : int or float, optional. Total to use for the new bar. 
+        &quot;&quot;&quot;</span>
+        <span class="s3">if </span><span class="s1">self.disable:</span>
+            <span class="s3">return </span><span class="s1">super(tqdm_notebook</span><span class="s3">, </span><span class="s1">self).reset(total=total)</span>
+        <span class="s1">_</span><span class="s3">, </span><span class="s1">pbar</span><span class="s3">, </span><span class="s1">_ = self.container.children</span>
+        <span class="s1">pbar.bar_style = </span><span class="s5">''</span>
+        <span class="s3">if </span><span class="s1">total </span><span class="s3">is not None</span><span class="s1">:</span>
+            <span class="s1">pbar.max = total</span>
+            <span class="s3">if not </span><span class="s1">self.total </span><span class="s3">and </span><span class="s1">self.ncols </span><span class="s3">is None</span><span class="s1">:  </span><span class="s2"># no longer unknown total</span>
+                <span class="s1">pbar.layout.width = </span><span class="s3">None  </span><span class="s2"># reset width</span>
+        <span class="s3">return </span><span class="s1">super(tqdm_notebook</span><span class="s3">, </span><span class="s1">self).reset(total=total)</span>
+
+
+<span class="s3">def </span><span class="s1">tnrange(*args</span><span class="s3">, </span><span class="s1">**kwargs):</span>
+    <span class="s0">&quot;&quot;&quot;Shortcut for `tqdm.notebook.tqdm(range(*args), **kwargs)`.&quot;&quot;&quot;</span>
+    <span class="s3">return </span><span class="s1">tqdm_notebook(range(*args)</span><span class="s3">, </span><span class="s1">**kwargs)</span>
+
+
+<span class="s2"># Aliases</span>
+<span class="s1">tqdm = tqdm_notebook</span>
+<span class="s1">trange = tnrange</span>
+</pre>
+</body>
+</html>

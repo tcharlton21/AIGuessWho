@@ -1,0 +1,56 @@
+<html>
+<head>
+<title>itertools.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #629755; font-style: italic;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #cc7832;}
+.s3 { color: #6a8759;}
+.s4 { color: #6897bb;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+itertools.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+Thin wrappers around `itertools`. 
+&quot;&quot;&quot;</span>
+<span class="s2">import </span><span class="s1">itertools</span>
+
+<span class="s2">from </span><span class="s1">..auto </span><span class="s2">import </span><span class="s1">tqdm </span><span class="s2">as </span><span class="s1">tqdm_auto</span>
+
+<span class="s1">__author__ = {</span><span class="s3">&quot;github.com/&quot;</span><span class="s1">: [</span><span class="s3">&quot;casperdcl&quot;</span><span class="s1">]}</span>
+<span class="s1">__all__ = [</span><span class="s3">'product'</span><span class="s1">]</span>
+
+
+<span class="s2">def </span><span class="s1">product(*iterables</span><span class="s2">, </span><span class="s1">**tqdm_kwargs):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Equivalent of `itertools.product`. 
+ 
+    Parameters 
+    ---------- 
+    tqdm_class  : [default: tqdm.auto.tqdm]. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">kwargs = tqdm_kwargs.copy()</span>
+    <span class="s1">tqdm_class = kwargs.pop(</span><span class="s3">&quot;tqdm_class&quot;</span><span class="s2">, </span><span class="s1">tqdm_auto)</span>
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s1">lens = list(map(len</span><span class="s2">, </span><span class="s1">iterables))</span>
+    <span class="s2">except </span><span class="s1">TypeError:</span>
+        <span class="s1">total = </span><span class="s2">None</span>
+    <span class="s2">else</span><span class="s1">:</span>
+        <span class="s1">total = </span><span class="s4">1</span>
+        <span class="s2">for </span><span class="s1">i </span><span class="s2">in </span><span class="s1">lens:</span>
+            <span class="s1">total *= i</span>
+        <span class="s1">kwargs.setdefault(</span><span class="s3">&quot;total&quot;</span><span class="s2">, </span><span class="s1">total)</span>
+    <span class="s2">with </span><span class="s1">tqdm_class(**kwargs) </span><span class="s2">as </span><span class="s1">t:</span>
+        <span class="s1">it = itertools.product(*iterables)</span>
+        <span class="s2">for </span><span class="s1">i </span><span class="s2">in </span><span class="s1">it:</span>
+            <span class="s2">yield </span><span class="s1">i</span>
+            <span class="s1">t.update()</span>
+</pre>
+</body>
+</html>

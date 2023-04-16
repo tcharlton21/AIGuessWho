@@ -1,0 +1,141 @@
+<html>
+<head>
+<title>discord.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #629755; font-style: italic;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #cc7832;}
+.s3 { color: #6a8759;}
+.s4 { color: #808080;}
+.s5 { color: #6897bb;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+discord.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+Sends updates to a Discord bot. 
+ 
+Usage: 
+&gt;&gt;&gt; from tqdm.contrib.discord import tqdm, trange 
+&gt;&gt;&gt; for i in trange(10, token='{token}', channel_id='{channel_id}'): 
+...     ... 
+ 
+![screenshot](https://img.tqdm.ml/screenshot-discord.png) 
+&quot;&quot;&quot;</span>
+<span class="s2">import </span><span class="s1">logging</span>
+<span class="s2">from </span><span class="s1">os </span><span class="s2">import </span><span class="s1">getenv</span>
+
+<span class="s2">try</span><span class="s1">:</span>
+    <span class="s2">from </span><span class="s1">disco.client </span><span class="s2">import </span><span class="s1">Client</span><span class="s2">, </span><span class="s1">ClientConfig</span>
+<span class="s2">except </span><span class="s1">ImportError:</span>
+    <span class="s2">raise </span><span class="s1">ImportError(</span><span class="s3">&quot;Please `pip install disco-py`&quot;</span><span class="s1">)</span>
+
+<span class="s2">from </span><span class="s1">..auto </span><span class="s2">import </span><span class="s1">tqdm </span><span class="s2">as </span><span class="s1">tqdm_auto</span>
+<span class="s2">from </span><span class="s1">.utils_worker </span><span class="s2">import </span><span class="s1">MonoWorker</span>
+
+<span class="s1">__author__ = {</span><span class="s3">&quot;github.com/&quot;</span><span class="s1">: [</span><span class="s3">&quot;casperdcl&quot;</span><span class="s1">]}</span>
+<span class="s1">__all__ = [</span><span class="s3">'DiscordIO'</span><span class="s2">, </span><span class="s3">'tqdm_discord'</span><span class="s2">, </span><span class="s3">'tdrange'</span><span class="s2">, </span><span class="s3">'tqdm'</span><span class="s2">, </span><span class="s3">'trange'</span><span class="s1">]</span>
+
+
+<span class="s2">class </span><span class="s1">DiscordIO(MonoWorker):</span>
+    <span class="s0">&quot;&quot;&quot;Non-blocking file-like IO using a Discord Bot.&quot;&quot;&quot;</span>
+    <span class="s2">def </span><span class="s1">__init__(self</span><span class="s2">, </span><span class="s1">token</span><span class="s2">, </span><span class="s1">channel_id):</span>
+        <span class="s0">&quot;&quot;&quot;Creates a new message in the given `channel_id`.&quot;&quot;&quot;</span>
+        <span class="s1">super(DiscordIO</span><span class="s2">, </span><span class="s1">self).__init__()</span>
+        <span class="s1">config = ClientConfig()</span>
+        <span class="s1">config.token = token</span>
+        <span class="s1">client = Client(config)</span>
+        <span class="s1">self.text = self.__class__.__name__</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">self.message = client.api.channels_messages_create(channel_id</span><span class="s2">, </span><span class="s1">self.text)</span>
+        <span class="s2">except </span><span class="s1">Exception </span><span class="s2">as </span><span class="s1">e:</span>
+            <span class="s1">tqdm_auto.write(str(e))</span>
+            <span class="s1">self.message = </span><span class="s2">None</span>
+
+    <span class="s2">def </span><span class="s1">write(self</span><span class="s2">, </span><span class="s1">s):</span>
+        <span class="s0">&quot;&quot;&quot;Replaces internal `message`'s text with `s`.&quot;&quot;&quot;</span>
+        <span class="s2">if not </span><span class="s1">s:</span>
+            <span class="s1">s = </span><span class="s3">&quot;...&quot;</span>
+        <span class="s1">s = s.replace(</span><span class="s3">'</span><span class="s2">\r</span><span class="s3">'</span><span class="s2">, </span><span class="s3">''</span><span class="s1">).strip()</span>
+        <span class="s2">if </span><span class="s1">s == self.text:</span>
+            <span class="s2">return  </span><span class="s4"># skip duplicate message</span>
+        <span class="s1">message = self.message</span>
+        <span class="s2">if </span><span class="s1">message </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s2">return</span>
+        <span class="s1">self.text = s</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">future = self.submit(message.edit</span><span class="s2">, </span><span class="s3">'`' </span><span class="s1">+ s + </span><span class="s3">'`'</span><span class="s1">)</span>
+        <span class="s2">except </span><span class="s1">Exception </span><span class="s2">as </span><span class="s1">e:</span>
+            <span class="s1">tqdm_auto.write(str(e))</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s2">return </span><span class="s1">future</span>
+
+
+<span class="s2">class </span><span class="s1">tqdm_discord(tqdm_auto):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Standard `tqdm.auto.tqdm` but also sends updates to a Discord Bot. 
+    May take a few seconds to create (`__init__`). 
+ 
+    - create a discord bot (not public, no requirement of OAuth2 code 
+      grant, only send message permissions) &amp; invite it to a channel: 
+      &lt;https://discordpy.readthedocs.io/en/latest/discord.html&gt; 
+    - copy the bot `{token}` &amp; `{channel_id}` and paste below 
+ 
+    &gt;&gt;&gt; from tqdm.contrib.discord import tqdm, trange 
+    &gt;&gt;&gt; for i in tqdm(iterable, token='{token}', channel_id='{channel_id}'): 
+    ...     ... 
+    &quot;&quot;&quot;</span>
+    <span class="s2">def </span><span class="s1">__init__(self</span><span class="s2">, </span><span class="s1">*args</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Parameters 
+        ---------- 
+        token  : str, required. Discord token 
+            [default: ${TQDM_DISCORD_TOKEN}]. 
+        channel_id  : int, required. Discord channel ID 
+            [default: ${TQDM_DISCORD_CHANNEL_ID}]. 
+        mininterval  : float, optional. 
+          Minimum of [default: 1.5] to avoid rate limit. 
+ 
+        See `tqdm.auto.tqdm.__init__` for other parameters. 
+        &quot;&quot;&quot;</span>
+        <span class="s2">if not </span><span class="s1">kwargs.get(</span><span class="s3">'disable'</span><span class="s1">):</span>
+            <span class="s1">kwargs = kwargs.copy()</span>
+            <span class="s1">logging.getLogger(</span><span class="s3">&quot;HTTPClient&quot;</span><span class="s1">).setLevel(logging.WARNING)</span>
+            <span class="s1">self.dio = DiscordIO(</span>
+                <span class="s1">kwargs.pop(</span><span class="s3">'token'</span><span class="s2">, </span><span class="s1">getenv(</span><span class="s3">&quot;TQDM_DISCORD_TOKEN&quot;</span><span class="s1">))</span><span class="s2">,</span>
+                <span class="s1">kwargs.pop(</span><span class="s3">'channel_id'</span><span class="s2">, </span><span class="s1">getenv(</span><span class="s3">&quot;TQDM_DISCORD_CHANNEL_ID&quot;</span><span class="s1">)))</span>
+            <span class="s1">kwargs[</span><span class="s3">'mininterval'</span><span class="s1">] = max(</span><span class="s5">1.5</span><span class="s2">, </span><span class="s1">kwargs.get(</span><span class="s3">'mininterval'</span><span class="s2">, </span><span class="s5">1.5</span><span class="s1">))</span>
+        <span class="s1">super(tqdm_discord</span><span class="s2">, </span><span class="s1">self).__init__(*args</span><span class="s2">, </span><span class="s1">**kwargs)</span>
+
+    <span class="s2">def </span><span class="s1">display(self</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+        <span class="s1">super(tqdm_discord</span><span class="s2">, </span><span class="s1">self).display(**kwargs)</span>
+        <span class="s1">fmt = self.format_dict</span>
+        <span class="s2">if </span><span class="s1">fmt.get(</span><span class="s3">'bar_format'</span><span class="s2">, None</span><span class="s1">):</span>
+            <span class="s1">fmt[</span><span class="s3">'bar_format'</span><span class="s1">] = fmt[</span><span class="s3">'bar_format'</span><span class="s1">].replace(</span>
+                <span class="s3">'&lt;bar/&gt;'</span><span class="s2">, </span><span class="s3">'{bar:10u}'</span><span class="s1">).replace(</span><span class="s3">'{bar}'</span><span class="s2">, </span><span class="s3">'{bar:10u}'</span><span class="s1">)</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">fmt[</span><span class="s3">'bar_format'</span><span class="s1">] = </span><span class="s3">'{l_bar}{bar:10u}{r_bar}'</span>
+        <span class="s1">self.dio.write(self.format_meter(**fmt))</span>
+
+    <span class="s2">def </span><span class="s1">clear(self</span><span class="s2">, </span><span class="s1">*args</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+        <span class="s1">super(tqdm_discord</span><span class="s2">, </span><span class="s1">self).clear(*args</span><span class="s2">, </span><span class="s1">**kwargs)</span>
+        <span class="s2">if not </span><span class="s1">self.disable:</span>
+            <span class="s1">self.dio.write(</span><span class="s3">&quot;&quot;</span><span class="s1">)</span>
+
+
+<span class="s2">def </span><span class="s1">tdrange(*args</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+    <span class="s0">&quot;&quot;&quot;Shortcut for `tqdm.contrib.discord.tqdm(range(*args), **kwargs)`.&quot;&quot;&quot;</span>
+    <span class="s2">return </span><span class="s1">tqdm_discord(range(*args)</span><span class="s2">, </span><span class="s1">**kwargs)</span>
+
+
+<span class="s4"># Aliases</span>
+<span class="s1">tqdm = tqdm_discord</span>
+<span class="s1">trange = tdrange</span>
+</pre>
+</body>
+</html>

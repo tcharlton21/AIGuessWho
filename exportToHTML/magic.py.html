@@ -1,0 +1,49 @@
+<html>
+<head>
+<title>magic.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #808080;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #629755; font-style: italic;}
+.s3 { color: #cc7832;}
+.s4 { color: #6897bb;}
+.s5 { color: #6a8759;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+magic.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># -*- coding: utf-8 -*-</span>
+<span class="s2">&quot;&quot;&quot; 
+Created on Mon Mar 28 00:54:30 2016 
+ 
+@author: Koos Zevenhoven 
+&quot;&quot;&quot;</span>
+<span class="s3">import </span><span class="s1">np.quickarrays </span><span class="s3">as </span><span class="s1">quickarrays</span>
+<span class="s3">import </span><span class="s1">sys</span>
+
+<span class="s3">if </span><span class="s1">sys.version_info &lt; (</span><span class="s4">3</span><span class="s3">,</span><span class="s4">5</span><span class="s3">,</span><span class="s4">0</span><span class="s1">):</span>
+    <span class="s1">np = quickarrays.npmodule()</span>
+    
+    <span class="s1">np.numpy = quickarrays.numpy</span>
+    <span class="s1">np.np = np</span>
+    
+    <span class="s1">sys.modules[</span><span class="s5">'numpy'</span><span class="s1">] = np    </span>
+<span class="s3">else</span><span class="s1">:</span>
+    <span class="s1">np = quickarrays.numpy</span>
+    <span class="s1">np.__class__ = quickarrays.npmodule</span>
+
+<span class="s3">for </span><span class="s1">shortcut </span><span class="s3">in </span><span class="s1">quickarrays.np_quick_types:</span>
+    <span class="s1">setattr(np</span><span class="s3">, </span><span class="s1">shortcut</span><span class="s3">, </span><span class="s1">quickarrays.NPQuickTypeShortcut(shortcut))</span>
+<span class="s1">np.m = quickarrays.NPQuickMatrixCreator()</span>
+<span class="s1">np._repr = quickarrays._repr    </span>
+<span class="s1">np.np_quick_types = quickarrays.np_quick_types            </span>
+
+<span class="s1">sys.modules[</span><span class="s5">'np'</span><span class="s1">] = np  </span>
+</pre>
+</body>
+</html>

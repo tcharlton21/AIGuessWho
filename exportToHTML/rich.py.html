@@ -1,0 +1,172 @@
+<html>
+<head>
+<title>rich.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #629755; font-style: italic;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #cc7832;}
+.s3 { color: #6a8759;}
+.s4 { color: #6897bb;}
+.s5 { color: #808080;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+rich.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+`rich.progress` decorator for iterators. 
+ 
+Usage: 
+&gt;&gt;&gt; from tqdm.rich import trange, tqdm 
+&gt;&gt;&gt; for i in trange(10): 
+...     ... 
+&quot;&quot;&quot;</span>
+<span class="s2">from </span><span class="s1">warnings </span><span class="s2">import </span><span class="s1">warn</span>
+
+<span class="s2">from </span><span class="s1">rich.progress </span><span class="s2">import </span><span class="s1">(</span>
+    <span class="s1">BarColumn</span><span class="s2">, </span><span class="s1">Progress</span><span class="s2">, </span><span class="s1">ProgressColumn</span><span class="s2">, </span><span class="s1">Text</span><span class="s2">, </span><span class="s1">TimeElapsedColumn</span><span class="s2">, </span><span class="s1">TimeRemainingColumn</span><span class="s2">, </span><span class="s1">filesize)</span>
+
+<span class="s2">from </span><span class="s1">.std </span><span class="s2">import </span><span class="s1">TqdmExperimentalWarning</span>
+<span class="s2">from </span><span class="s1">.std </span><span class="s2">import </span><span class="s1">tqdm </span><span class="s2">as </span><span class="s1">std_tqdm</span>
+
+<span class="s1">__author__ = {</span><span class="s3">&quot;github.com/&quot;</span><span class="s1">: [</span><span class="s3">&quot;casperdcl&quot;</span><span class="s1">]}</span>
+<span class="s1">__all__ = [</span><span class="s3">'tqdm_rich'</span><span class="s2">, </span><span class="s3">'trrange'</span><span class="s2">, </span><span class="s3">'tqdm'</span><span class="s2">, </span><span class="s3">'trange'</span><span class="s1">]</span>
+
+
+<span class="s2">class </span><span class="s1">FractionColumn(ProgressColumn):</span>
+    <span class="s0">&quot;&quot;&quot;Renders completed/total, e.g. '0.5/2.3 G'.&quot;&quot;&quot;</span>
+    <span class="s2">def </span><span class="s1">__init__(self</span><span class="s2">, </span><span class="s1">unit_scale=</span><span class="s2">False, </span><span class="s1">unit_divisor=</span><span class="s4">1000</span><span class="s1">):</span>
+        <span class="s1">self.unit_scale = unit_scale</span>
+        <span class="s1">self.unit_divisor = unit_divisor</span>
+        <span class="s1">super().__init__()</span>
+
+    <span class="s2">def </span><span class="s1">render(self</span><span class="s2">, </span><span class="s1">task):</span>
+        <span class="s0">&quot;&quot;&quot;Calculate common unit for completed and total.&quot;&quot;&quot;</span>
+        <span class="s1">completed = int(task.completed)</span>
+        <span class="s1">total = int(task.total)</span>
+        <span class="s2">if </span><span class="s1">self.unit_scale:</span>
+            <span class="s1">unit</span><span class="s2">, </span><span class="s1">suffix = filesize.pick_unit_and_suffix(</span>
+                <span class="s1">total</span><span class="s2">,</span>
+                <span class="s1">[</span><span class="s3">&quot;&quot;</span><span class="s2">, </span><span class="s3">&quot;K&quot;</span><span class="s2">, </span><span class="s3">&quot;M&quot;</span><span class="s2">, </span><span class="s3">&quot;G&quot;</span><span class="s2">, </span><span class="s3">&quot;T&quot;</span><span class="s2">, </span><span class="s3">&quot;P&quot;</span><span class="s2">, </span><span class="s3">&quot;E&quot;</span><span class="s2">, </span><span class="s3">&quot;Z&quot;</span><span class="s2">, </span><span class="s3">&quot;Y&quot;</span><span class="s1">]</span><span class="s2">,</span>
+                <span class="s1">self.unit_divisor</span><span class="s2">,</span>
+            <span class="s1">)</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">unit</span><span class="s2">, </span><span class="s1">suffix = filesize.pick_unit_and_suffix(total</span><span class="s2">, </span><span class="s1">[</span><span class="s3">&quot;&quot;</span><span class="s1">]</span><span class="s2">, </span><span class="s4">1</span><span class="s1">)</span>
+        <span class="s1">precision = </span><span class="s4">0 </span><span class="s2">if </span><span class="s1">unit == </span><span class="s4">1 </span><span class="s2">else </span><span class="s4">1</span>
+        <span class="s2">return </span><span class="s1">Text(</span>
+            <span class="s3">f&quot;</span><span class="s2">{</span><span class="s1">completed/unit</span><span class="s2">:</span><span class="s3">,.</span><span class="s2">{</span><span class="s1">precision</span><span class="s2">}</span><span class="s3">f</span><span class="s2">}</span><span class="s3">/</span><span class="s2">{</span><span class="s1">total/unit</span><span class="s2">:</span><span class="s3">,.</span><span class="s2">{</span><span class="s1">precision</span><span class="s2">}</span><span class="s3">f</span><span class="s2">} {</span><span class="s1">suffix</span><span class="s2">}</span><span class="s3">&quot;</span><span class="s2">,</span>
+            <span class="s1">style=</span><span class="s3">&quot;progress.download&quot;</span><span class="s1">)</span>
+
+
+<span class="s2">class </span><span class="s1">RateColumn(ProgressColumn):</span>
+    <span class="s0">&quot;&quot;&quot;Renders human readable transfer speed.&quot;&quot;&quot;</span>
+    <span class="s2">def </span><span class="s1">__init__(self</span><span class="s2">, </span><span class="s1">unit=</span><span class="s3">&quot;&quot;</span><span class="s2">, </span><span class="s1">unit_scale=</span><span class="s2">False, </span><span class="s1">unit_divisor=</span><span class="s4">1000</span><span class="s1">):</span>
+        <span class="s1">self.unit = unit</span>
+        <span class="s1">self.unit_scale = unit_scale</span>
+        <span class="s1">self.unit_divisor = unit_divisor</span>
+        <span class="s1">super().__init__()</span>
+
+    <span class="s2">def </span><span class="s1">render(self</span><span class="s2">, </span><span class="s1">task):</span>
+        <span class="s0">&quot;&quot;&quot;Show data transfer speed.&quot;&quot;&quot;</span>
+        <span class="s1">speed = task.speed</span>
+        <span class="s2">if </span><span class="s1">speed </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s2">return </span><span class="s1">Text(</span><span class="s3">f&quot;? </span><span class="s2">{</span><span class="s1">self.unit</span><span class="s2">}</span><span class="s3">/s&quot;</span><span class="s2">, </span><span class="s1">style=</span><span class="s3">&quot;progress.data.speed&quot;</span><span class="s1">)</span>
+        <span class="s2">if </span><span class="s1">self.unit_scale:</span>
+            <span class="s1">unit</span><span class="s2">, </span><span class="s1">suffix = filesize.pick_unit_and_suffix(</span>
+                <span class="s1">speed</span><span class="s2">,</span>
+                <span class="s1">[</span><span class="s3">&quot;&quot;</span><span class="s2">, </span><span class="s3">&quot;K&quot;</span><span class="s2">, </span><span class="s3">&quot;M&quot;</span><span class="s2">, </span><span class="s3">&quot;G&quot;</span><span class="s2">, </span><span class="s3">&quot;T&quot;</span><span class="s2">, </span><span class="s3">&quot;P&quot;</span><span class="s2">, </span><span class="s3">&quot;E&quot;</span><span class="s2">, </span><span class="s3">&quot;Z&quot;</span><span class="s2">, </span><span class="s3">&quot;Y&quot;</span><span class="s1">]</span><span class="s2">,</span>
+                <span class="s1">self.unit_divisor</span><span class="s2">,</span>
+            <span class="s1">)</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">unit</span><span class="s2">, </span><span class="s1">suffix = filesize.pick_unit_and_suffix(speed</span><span class="s2">, </span><span class="s1">[</span><span class="s3">&quot;&quot;</span><span class="s1">]</span><span class="s2">, </span><span class="s4">1</span><span class="s1">)</span>
+        <span class="s1">precision = </span><span class="s4">0 </span><span class="s2">if </span><span class="s1">unit == </span><span class="s4">1 </span><span class="s2">else </span><span class="s4">1</span>
+        <span class="s2">return </span><span class="s1">Text(</span><span class="s3">f&quot;</span><span class="s2">{</span><span class="s1">speed/unit</span><span class="s2">:</span><span class="s3">,.</span><span class="s2">{</span><span class="s1">precision</span><span class="s2">}</span><span class="s3">f</span><span class="s2">} {</span><span class="s1">suffix</span><span class="s2">}{</span><span class="s1">self.unit</span><span class="s2">}</span><span class="s3">/s&quot;</span><span class="s2">,</span>
+                    <span class="s1">style=</span><span class="s3">&quot;progress.data.speed&quot;</span><span class="s1">)</span>
+
+
+<span class="s2">class </span><span class="s1">tqdm_rich(std_tqdm):  </span><span class="s5"># pragma: no cover</span>
+    <span class="s0">&quot;&quot;&quot;Experimental rich.progress GUI version of tqdm!&quot;&quot;&quot;</span>
+    <span class="s5"># TODO: @classmethod: write()?</span>
+    <span class="s2">def </span><span class="s1">__init__(self</span><span class="s2">, </span><span class="s1">*args</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        This class accepts the following parameters *in addition* to 
+        the parameters accepted by `tqdm`. 
+ 
+        Parameters 
+        ---------- 
+        progress  : tuple, optional 
+            arguments for `rich.progress.Progress()`. 
+        options  : dict, optional 
+            keyword arguments for `rich.progress.Progress()`. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">kwargs = kwargs.copy()</span>
+        <span class="s1">kwargs[</span><span class="s3">'gui'</span><span class="s1">] = </span><span class="s2">True</span>
+        <span class="s5"># convert disable = None to False</span>
+        <span class="s1">kwargs[</span><span class="s3">'disable'</span><span class="s1">] = bool(kwargs.get(</span><span class="s3">'disable'</span><span class="s2">, False</span><span class="s1">))</span>
+        <span class="s1">progress = kwargs.pop(</span><span class="s3">'progress'</span><span class="s2">, None</span><span class="s1">)</span>
+        <span class="s1">options = kwargs.pop(</span><span class="s3">'options'</span><span class="s2">, </span><span class="s1">{}).copy()</span>
+        <span class="s1">super(tqdm_rich</span><span class="s2">, </span><span class="s1">self).__init__(*args</span><span class="s2">, </span><span class="s1">**kwargs)</span>
+
+        <span class="s2">if </span><span class="s1">self.disable:</span>
+            <span class="s2">return</span>
+
+        <span class="s1">warn(</span><span class="s3">&quot;rich is experimental/alpha&quot;</span><span class="s2">, </span><span class="s1">TqdmExperimentalWarning</span><span class="s2">, </span><span class="s1">stacklevel=</span><span class="s4">2</span><span class="s1">)</span>
+        <span class="s1">d = self.format_dict</span>
+        <span class="s2">if </span><span class="s1">progress </span><span class="s2">is None</span><span class="s1">:</span>
+            <span class="s1">progress = (</span>
+                <span class="s3">&quot;[progress.description]{task.description}&quot;</span>
+                <span class="s3">&quot;[progress.percentage]{task.percentage:&gt;4.0f}%&quot;</span><span class="s2">,</span>
+                <span class="s1">BarColumn(bar_width=</span><span class="s2">None</span><span class="s1">)</span><span class="s2">,</span>
+                <span class="s1">FractionColumn(</span>
+                    <span class="s1">unit_scale=d[</span><span class="s3">'unit_scale'</span><span class="s1">]</span><span class="s2">, </span><span class="s1">unit_divisor=d[</span><span class="s3">'unit_divisor'</span><span class="s1">])</span><span class="s2">,</span>
+                <span class="s3">&quot;[&quot;</span><span class="s2">, </span><span class="s1">TimeElapsedColumn()</span><span class="s2">, </span><span class="s3">&quot;&lt;&quot;</span><span class="s2">, </span><span class="s1">TimeRemainingColumn()</span><span class="s2">,</span>
+                <span class="s3">&quot;,&quot;</span><span class="s2">, </span><span class="s1">RateColumn(unit=d[</span><span class="s3">'unit'</span><span class="s1">]</span><span class="s2">, </span><span class="s1">unit_scale=d[</span><span class="s3">'unit_scale'</span><span class="s1">]</span><span class="s2">,</span>
+                                <span class="s1">unit_divisor=d[</span><span class="s3">'unit_divisor'</span><span class="s1">])</span><span class="s2">, </span><span class="s3">&quot;]&quot;</span>
+            <span class="s1">)</span>
+        <span class="s1">options.setdefault(</span><span class="s3">'transient'</span><span class="s2">, not </span><span class="s1">self.leave)</span>
+        <span class="s1">self._prog = Progress(*progress</span><span class="s2">, </span><span class="s1">**options)</span>
+        <span class="s1">self._prog.__enter__()</span>
+        <span class="s1">self._task_id = self._prog.add_task(self.desc </span><span class="s2">or </span><span class="s3">&quot;&quot;</span><span class="s2">, </span><span class="s1">**d)</span>
+
+    <span class="s2">def </span><span class="s1">close(self):</span>
+        <span class="s2">if </span><span class="s1">self.disable:</span>
+            <span class="s2">return</span>
+        <span class="s1">super(tqdm_rich</span><span class="s2">, </span><span class="s1">self).close()</span>
+        <span class="s1">self._prog.__exit__(</span><span class="s2">None, None, None</span><span class="s1">)</span>
+
+    <span class="s2">def </span><span class="s1">clear(self</span><span class="s2">, </span><span class="s1">*_</span><span class="s2">, </span><span class="s1">**__):</span>
+        <span class="s2">pass</span>
+
+    <span class="s2">def </span><span class="s1">display(self</span><span class="s2">, </span><span class="s1">*_</span><span class="s2">, </span><span class="s1">**__):</span>
+        <span class="s2">if not </span><span class="s1">hasattr(self</span><span class="s2">, </span><span class="s3">'_prog'</span><span class="s1">):</span>
+            <span class="s2">return</span>
+        <span class="s1">self._prog.update(self._task_id</span><span class="s2">, </span><span class="s1">completed=self.n</span><span class="s2">, </span><span class="s1">description=self.desc)</span>
+
+    <span class="s2">def </span><span class="s1">reset(self</span><span class="s2">, </span><span class="s1">total=</span><span class="s2">None</span><span class="s1">):</span>
+        <span class="s0">&quot;&quot;&quot; 
+        Resets to 0 iterations for repeated use. 
+ 
+        Parameters 
+        ---------- 
+        total  : int or float, optional. Total to use for the new bar. 
+        &quot;&quot;&quot;</span>
+        <span class="s2">if </span><span class="s1">hasattr(self</span><span class="s2">, </span><span class="s3">'_prog'</span><span class="s1">):</span>
+            <span class="s1">self._prog.reset(total=total)</span>
+        <span class="s1">super(tqdm_rich</span><span class="s2">, </span><span class="s1">self).reset(total=total)</span>
+
+
+<span class="s2">def </span><span class="s1">trrange(*args</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+    <span class="s0">&quot;&quot;&quot;Shortcut for `tqdm.rich.tqdm(range(*args), **kwargs)`.&quot;&quot;&quot;</span>
+    <span class="s2">return </span><span class="s1">tqdm_rich(range(*args)</span><span class="s2">, </span><span class="s1">**kwargs)</span>
+
+
+<span class="s5"># Aliases</span>
+<span class="s1">tqdm = tqdm_rich</span>
+<span class="s1">trange = trrange</span>
+</pre>
+</body>
+</html>

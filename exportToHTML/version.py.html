@@ -1,0 +1,35 @@
+<html>
+<head>
+<title>version.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cc7832;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #6a8759;}
+.s3 { color: #6897bb;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+version.py</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">__future__ </span><span class="s0">import </span><span class="s1">annotations</span>
+
+<span class="s0">from </span><span class="s1">._version </span><span class="s0">import </span><span class="s1">get_versions</span>
+
+<span class="s1">__ALL__ = [</span><span class="s2">'version'</span><span class="s0">, </span><span class="s2">'__version__'</span><span class="s0">, </span><span class="s2">'full_version'</span><span class="s0">, </span><span class="s2">'git_revision'</span><span class="s0">, </span><span class="s2">'release'</span><span class="s1">]</span>
+
+<span class="s1">vinfo: dict[str</span><span class="s0">, </span><span class="s1">str] = get_versions()</span>
+<span class="s1">version = vinfo[</span><span class="s2">&quot;version&quot;</span><span class="s1">]</span>
+<span class="s1">__version__ = vinfo.get(</span><span class="s2">&quot;closest-tag&quot;</span><span class="s0">, </span><span class="s1">vinfo[</span><span class="s2">&quot;version&quot;</span><span class="s1">])</span>
+<span class="s1">full_version = vinfo[</span><span class="s2">'version'</span><span class="s1">]</span>
+<span class="s1">git_revision = vinfo[</span><span class="s2">'full-revisionid'</span><span class="s1">]</span>
+<span class="s1">release = </span><span class="s2">'dev0' </span><span class="s0">not in </span><span class="s1">version </span><span class="s0">and </span><span class="s2">'+' </span><span class="s0">not in </span><span class="s1">version</span>
+<span class="s1">short_version = vinfo[</span><span class="s2">'version'</span><span class="s1">].split(</span><span class="s2">&quot;+&quot;</span><span class="s1">)[</span><span class="s3">0</span><span class="s1">]</span>
+
+<span class="s0">del </span><span class="s1">get_versions</span><span class="s0">, </span><span class="s1">vinfo</span>
+</pre>
+</body>
+</html>

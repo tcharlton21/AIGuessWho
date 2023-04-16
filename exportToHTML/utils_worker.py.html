@@ -1,0 +1,60 @@
+<html>
+<head>
+<title>utils_worker.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #629755; font-style: italic;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #cc7832;}
+.s3 { color: #6a8759;}
+.s4 { color: #6897bb;}
+.s5 { color: #808080;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+utils_worker.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+IO/concurrency helpers for `tqdm.contrib`. 
+&quot;&quot;&quot;</span>
+<span class="s2">from </span><span class="s1">collections </span><span class="s2">import </span><span class="s1">deque</span>
+<span class="s2">from </span><span class="s1">concurrent.futures </span><span class="s2">import </span><span class="s1">ThreadPoolExecutor</span>
+
+<span class="s2">from </span><span class="s1">..auto </span><span class="s2">import </span><span class="s1">tqdm </span><span class="s2">as </span><span class="s1">tqdm_auto</span>
+
+<span class="s1">__author__ = {</span><span class="s3">&quot;github.com/&quot;</span><span class="s1">: [</span><span class="s3">&quot;casperdcl&quot;</span><span class="s1">]}</span>
+<span class="s1">__all__ = [</span><span class="s3">'MonoWorker'</span><span class="s1">]</span>
+
+
+<span class="s2">class </span><span class="s1">MonoWorker(object):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Supports one running task and one waiting task. 
+    The waiting task is the most recent submitted (others are discarded). 
+    &quot;&quot;&quot;</span>
+    <span class="s2">def </span><span class="s1">__init__(self):</span>
+        <span class="s1">self.pool = ThreadPoolExecutor(max_workers=</span><span class="s4">1</span><span class="s1">)</span>
+        <span class="s1">self.futures = deque([]</span><span class="s2">, </span><span class="s4">2</span><span class="s1">)</span>
+
+    <span class="s2">def </span><span class="s1">submit(self</span><span class="s2">, </span><span class="s1">func</span><span class="s2">, </span><span class="s1">*args</span><span class="s2">, </span><span class="s1">**kwargs):</span>
+        <span class="s0">&quot;&quot;&quot;`func(*args, **kwargs)` may replace currently waiting task.&quot;&quot;&quot;</span>
+        <span class="s1">futures = self.futures</span>
+        <span class="s2">if </span><span class="s1">len(futures) == futures.maxlen:</span>
+            <span class="s1">running = futures.popleft()</span>
+            <span class="s2">if not </span><span class="s1">running.done():</span>
+                <span class="s2">if </span><span class="s1">len(futures):  </span><span class="s5"># clear waiting</span>
+                    <span class="s1">waiting = futures.pop()</span>
+                    <span class="s1">waiting.cancel()</span>
+                <span class="s1">futures.appendleft(running)  </span><span class="s5"># re-insert running</span>
+        <span class="s2">try</span><span class="s1">:</span>
+            <span class="s1">waiting = self.pool.submit(func</span><span class="s2">, </span><span class="s1">*args</span><span class="s2">, </span><span class="s1">**kwargs)</span>
+        <span class="s2">except </span><span class="s1">Exception </span><span class="s2">as </span><span class="s1">e:</span>
+            <span class="s1">tqdm_auto.write(str(e))</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">futures.append(waiting)</span>
+            <span class="s2">return </span><span class="s1">waiting</span>
+</pre>
+</body>
+</html>

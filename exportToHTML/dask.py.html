@@ -1,0 +1,64 @@
+<html>
+<head>
+<title>dask.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cc7832;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #6a8759;}
+.s3 { color: #629755; font-style: italic;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+dask.py</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">functools </span><span class="s0">import </span><span class="s1">partial</span>
+
+<span class="s0">from </span><span class="s1">dask.callbacks </span><span class="s0">import </span><span class="s1">Callback</span>
+
+<span class="s0">from </span><span class="s1">.auto </span><span class="s0">import </span><span class="s1">tqdm </span><span class="s0">as </span><span class="s1">tqdm_auto</span>
+
+<span class="s1">__author__ = {</span><span class="s2">&quot;github.com/&quot;</span><span class="s1">: [</span><span class="s2">&quot;casperdcl&quot;</span><span class="s1">]}</span>
+<span class="s1">__all__ = [</span><span class="s2">'TqdmCallback'</span><span class="s1">]</span>
+
+
+<span class="s0">class </span><span class="s1">TqdmCallback(Callback):</span>
+    <span class="s3">&quot;&quot;&quot;Dask callback for task progress.&quot;&quot;&quot;</span>
+    <span class="s0">def </span><span class="s1">__init__(self</span><span class="s0">, </span><span class="s1">start=</span><span class="s0">None, </span><span class="s1">pretask=</span><span class="s0">None, </span><span class="s1">tqdm_class=tqdm_auto</span><span class="s0">,</span>
+                 <span class="s1">**tqdm_kwargs):</span>
+        <span class="s3">&quot;&quot;&quot; 
+        Parameters 
+        ---------- 
+        tqdm_class  : optional 
+            `tqdm` class to use for bars [default: `tqdm.auto.tqdm`]. 
+        tqdm_kwargs  : optional 
+            Any other arguments used for all bars. 
+        &quot;&quot;&quot;</span>
+        <span class="s1">super(TqdmCallback</span><span class="s0">, </span><span class="s1">self).__init__(start=start</span><span class="s0">, </span><span class="s1">pretask=pretask)</span>
+        <span class="s0">if </span><span class="s1">tqdm_kwargs:</span>
+            <span class="s1">tqdm_class = partial(tqdm_class</span><span class="s0">, </span><span class="s1">**tqdm_kwargs)</span>
+        <span class="s1">self.tqdm_class = tqdm_class</span>
+
+    <span class="s0">def </span><span class="s1">_start_state(self</span><span class="s0">, </span><span class="s1">_</span><span class="s0">, </span><span class="s1">state):</span>
+        <span class="s1">self.pbar = self.tqdm_class(total=sum(</span>
+            <span class="s1">len(state[k]) </span><span class="s0">for </span><span class="s1">k </span><span class="s0">in </span><span class="s1">[</span><span class="s2">'ready'</span><span class="s0">, </span><span class="s2">'waiting'</span><span class="s0">, </span><span class="s2">'running'</span><span class="s0">, </span><span class="s2">'finished'</span><span class="s1">]))</span>
+
+    <span class="s0">def </span><span class="s1">_posttask(self</span><span class="s0">, </span><span class="s1">*_</span><span class="s0">, </span><span class="s1">**__):</span>
+        <span class="s1">self.pbar.update()</span>
+
+    <span class="s0">def </span><span class="s1">_finish(self</span><span class="s0">, </span><span class="s1">*_</span><span class="s0">, </span><span class="s1">**__):</span>
+        <span class="s1">self.pbar.close()</span>
+
+    <span class="s0">def </span><span class="s1">display(self):</span>
+        <span class="s3">&quot;&quot;&quot;Displays in the current cell in Notebooks.&quot;&quot;&quot;</span>
+        <span class="s1">container = getattr(self.bar</span><span class="s0">, </span><span class="s2">'container'</span><span class="s0">, None</span><span class="s1">)</span>
+        <span class="s0">if </span><span class="s1">container </span><span class="s0">is None</span><span class="s1">:</span>
+            <span class="s0">return</span>
+        <span class="s0">from </span><span class="s1">.notebook </span><span class="s0">import </span><span class="s1">display</span>
+        <span class="s1">display(container)</span>
+</pre>
+</body>
+</html>

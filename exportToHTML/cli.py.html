@@ -1,0 +1,334 @@
+<html>
+<head>
+<title>cli.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #629755; font-style: italic;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #cc7832;}
+.s3 { color: #6a8759;}
+.s4 { color: #808080;}
+.s5 { color: #a5c261;}
+.s6 { color: #6897bb;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+cli.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+Module version for monitoring CLI pipes (`... | python -m tqdm | ...`). 
+&quot;&quot;&quot;</span>
+<span class="s2">import </span><span class="s1">logging</span>
+<span class="s2">import </span><span class="s1">re</span>
+<span class="s2">import </span><span class="s1">sys</span>
+<span class="s2">from </span><span class="s1">ast </span><span class="s2">import </span><span class="s1">literal_eval </span><span class="s2">as </span><span class="s1">numeric</span>
+
+<span class="s2">from </span><span class="s1">.std </span><span class="s2">import </span><span class="s1">TqdmKeyError</span><span class="s2">, </span><span class="s1">TqdmTypeError</span><span class="s2">, </span><span class="s1">tqdm</span>
+<span class="s2">from </span><span class="s1">.version </span><span class="s2">import </span><span class="s1">__version__</span>
+
+<span class="s1">__all__ = [</span><span class="s3">&quot;main&quot;</span><span class="s1">]</span>
+<span class="s1">log = logging.getLogger(__name__)</span>
+
+
+<span class="s2">def </span><span class="s1">cast(val</span><span class="s2">, </span><span class="s1">typ):</span>
+    <span class="s1">log.debug((val</span><span class="s2">, </span><span class="s1">typ))</span>
+    <span class="s2">if </span><span class="s3">&quot; or &quot; </span><span class="s2">in </span><span class="s1">typ:</span>
+        <span class="s2">for </span><span class="s1">t </span><span class="s2">in </span><span class="s1">typ.split(</span><span class="s3">&quot; or &quot;</span><span class="s1">):</span>
+            <span class="s2">try</span><span class="s1">:</span>
+                <span class="s2">return </span><span class="s1">cast(val</span><span class="s2">, </span><span class="s1">t)</span>
+            <span class="s2">except </span><span class="s1">TqdmTypeError:</span>
+                <span class="s2">pass</span>
+        <span class="s2">raise </span><span class="s1">TqdmTypeError(val + </span><span class="s3">' : ' </span><span class="s1">+ typ)</span>
+
+    <span class="s4"># sys.stderr.write('\ndebug | `val:type`: `' + val + ':' + typ + '`.\n')</span>
+    <span class="s2">if </span><span class="s1">typ == </span><span class="s3">'bool'</span><span class="s1">:</span>
+        <span class="s2">if </span><span class="s1">(val == </span><span class="s3">'True'</span><span class="s1">) </span><span class="s2">or </span><span class="s1">(val == </span><span class="s3">''</span><span class="s1">):</span>
+            <span class="s2">return True</span>
+        <span class="s2">elif </span><span class="s1">val == </span><span class="s3">'False'</span><span class="s1">:</span>
+            <span class="s2">return False</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s2">raise </span><span class="s1">TqdmTypeError(val + </span><span class="s3">' : ' </span><span class="s1">+ typ)</span>
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s2">return </span><span class="s1">eval(typ + </span><span class="s3">'(&quot;' </span><span class="s1">+ val + </span><span class="s3">'&quot;)'</span><span class="s1">)</span>
+    <span class="s2">except </span><span class="s1">Exception:</span>
+        <span class="s2">if </span><span class="s1">typ == </span><span class="s3">'chr'</span><span class="s1">:</span>
+            <span class="s2">return </span><span class="s1">chr(ord(eval(</span><span class="s3">'&quot;' </span><span class="s1">+ val + </span><span class="s3">'&quot;'</span><span class="s1">))).encode()</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s2">raise </span><span class="s1">TqdmTypeError(val + </span><span class="s3">' : ' </span><span class="s1">+ typ)</span>
+
+
+<span class="s2">def </span><span class="s1">posix_pipe(fin</span><span class="s2">, </span><span class="s1">fout</span><span class="s2">, </span><span class="s1">delim=</span><span class="s5">b'</span><span class="s2">\\</span><span class="s5">n'</span><span class="s2">, </span><span class="s1">buf_size=</span><span class="s6">256</span><span class="s2">,</span>
+               <span class="s1">callback=</span><span class="s2">lambda </span><span class="s1">float: </span><span class="s2">None, </span><span class="s1">callback_len=</span><span class="s2">True</span><span class="s1">):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Params 
+    ------ 
+    fin  : binary file with `read(buf_size : int)` method 
+    fout  : binary file with `write` (and optionally `flush`) methods. 
+    callback  : function(float), e.g.: `tqdm.update` 
+    callback_len  : If (default: True) do `callback(len(buffer))`. 
+      Otherwise, do `callback(data) for data in buffer.split(delim)`. 
+    &quot;&quot;&quot;</span>
+    <span class="s1">fp_write = fout.write</span>
+
+    <span class="s2">if not </span><span class="s1">delim:</span>
+        <span class="s2">while True</span><span class="s1">:</span>
+            <span class="s1">tmp = fin.read(buf_size)</span>
+
+            <span class="s4"># flush at EOF</span>
+            <span class="s2">if not </span><span class="s1">tmp:</span>
+                <span class="s1">getattr(fout</span><span class="s2">, </span><span class="s3">'flush'</span><span class="s2">, lambda</span><span class="s1">: </span><span class="s2">None</span><span class="s1">)()</span>
+                <span class="s2">return</span>
+
+            <span class="s1">fp_write(tmp)</span>
+            <span class="s1">callback(len(tmp))</span>
+        <span class="s4"># return</span>
+
+    <span class="s1">buf = </span><span class="s5">b''</span>
+    <span class="s1">len_delim = len(delim)</span>
+    <span class="s4"># n = 0</span>
+    <span class="s2">while True</span><span class="s1">:</span>
+        <span class="s1">tmp = fin.read(buf_size)</span>
+
+        <span class="s4"># flush at EOF</span>
+        <span class="s2">if not </span><span class="s1">tmp:</span>
+            <span class="s2">if </span><span class="s1">buf:</span>
+                <span class="s1">fp_write(buf)</span>
+                <span class="s2">if </span><span class="s1">callback_len:</span>
+                    <span class="s4"># n += 1 + buf.count(delim)</span>
+                    <span class="s1">callback(</span><span class="s6">1 </span><span class="s1">+ buf.count(delim))</span>
+                <span class="s2">else</span><span class="s1">:</span>
+                    <span class="s2">for </span><span class="s1">i </span><span class="s2">in </span><span class="s1">buf.split(delim):</span>
+                        <span class="s1">callback(i)</span>
+            <span class="s1">getattr(fout</span><span class="s2">, </span><span class="s3">'flush'</span><span class="s2">, lambda</span><span class="s1">: </span><span class="s2">None</span><span class="s1">)()</span>
+            <span class="s2">return  </span><span class="s4"># n</span>
+
+        <span class="s2">while True</span><span class="s1">:</span>
+            <span class="s1">i = tmp.find(delim)</span>
+            <span class="s2">if </span><span class="s1">i &lt; </span><span class="s6">0</span><span class="s1">:</span>
+                <span class="s1">buf += tmp</span>
+                <span class="s2">break</span>
+            <span class="s1">fp_write(buf + tmp[:i + len(delim)])</span>
+            <span class="s4"># n += 1</span>
+            <span class="s1">callback(</span><span class="s6">1 </span><span class="s2">if </span><span class="s1">callback_len </span><span class="s2">else </span><span class="s1">(buf + tmp[:i]))</span>
+            <span class="s1">buf = </span><span class="s5">b''</span>
+            <span class="s1">tmp = tmp[i + len_delim:]</span>
+
+
+<span class="s4"># ((opt, type), ... )</span>
+<span class="s1">RE_OPTS = re.compile(</span><span class="s3">r'\n {8}(\S+)\s{2,}:\s*([^,]+)'</span><span class="s1">)</span>
+<span class="s4"># better split method assuming no positional args</span>
+<span class="s1">RE_SHLEX = re.compile(</span><span class="s3">r'\s*(?&lt;!\S)--?([^\s=]+)(\s+|=|$)'</span><span class="s1">)</span>
+
+<span class="s4"># TODO: add custom support for some of the following?</span>
+<span class="s1">UNSUPPORTED_OPTS = (</span><span class="s3">'iterable'</span><span class="s2">, </span><span class="s3">'gui'</span><span class="s2">, </span><span class="s3">'out'</span><span class="s2">, </span><span class="s3">'file'</span><span class="s1">)</span>
+
+<span class="s4"># The 8 leading spaces are required for consistency</span>
+<span class="s1">CLI_EXTRA_DOC = </span><span class="s3">r&quot;&quot;&quot; 
+        Extra CLI Options 
+        ----------------- 
+        name  : type, optional 
+            TODO: find out why this is needed. 
+        delim  : chr, optional 
+            Delimiting character [default: '\n']. Use '\0' for null. 
+            N.B.: on Windows systems, Python converts '\n' to '\r\n'. 
+        buf_size  : int, optional 
+            String buffer size in bytes [default: 256] 
+            used when `delim` is specified. 
+        bytes  : bool, optional 
+            If true, will count bytes, ignore `delim`, and default 
+            `unit_scale` to True, `unit_divisor` to 1024, and `unit` to 'B'. 
+        tee  : bool, optional 
+            If true, passes `stdin` to both `stderr` and `stdout`. 
+        update  : bool, optional 
+            If true, will treat input as newly elapsed iterations, 
+            i.e. numbers to pass to `update()`. Note that this is slow 
+            (~2e5 it/s) since every input must be decoded as a number. 
+        update_to  : bool, optional 
+            If true, will treat input as total elapsed iterations, 
+            i.e. numbers to assign to `self.n`. Note that this is slow 
+            (~2e5 it/s) since every input must be decoded as a number. 
+        null  : bool, optional 
+            If true, will discard input (no stdout). 
+        manpath  : str, optional 
+            Directory in which to install tqdm man pages. 
+        comppath  : str, optional 
+            Directory in which to place tqdm completion. 
+        log  : str, optional 
+            CRITICAL|FATAL|ERROR|WARN(ING)|[default: 'INFO']|DEBUG|NOTSET. 
+&quot;&quot;&quot;</span>
+
+
+<span class="s2">def </span><span class="s1">main(fp=sys.stderr</span><span class="s2">, </span><span class="s1">argv=</span><span class="s2">None</span><span class="s1">):</span>
+    <span class="s0">&quot;&quot;&quot; 
+    Parameters (internal use only) 
+    --------- 
+    fp  : file-like object for tqdm 
+    argv  : list (default: sys.argv[1:]) 
+    &quot;&quot;&quot;</span>
+    <span class="s2">if </span><span class="s1">argv </span><span class="s2">is None</span><span class="s1">:</span>
+        <span class="s1">argv = sys.argv[</span><span class="s6">1</span><span class="s1">:]</span>
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s1">log_idx = argv.index(</span><span class="s3">'--log'</span><span class="s1">)</span>
+    <span class="s2">except </span><span class="s1">ValueError:</span>
+        <span class="s2">for </span><span class="s1">i </span><span class="s2">in </span><span class="s1">argv:</span>
+            <span class="s2">if </span><span class="s1">i.startswith(</span><span class="s3">'--log='</span><span class="s1">):</span>
+                <span class="s1">logLevel = i[len(</span><span class="s3">'--log='</span><span class="s1">):]</span>
+                <span class="s2">break</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">logLevel = </span><span class="s3">'INFO'</span>
+    <span class="s2">else</span><span class="s1">:</span>
+        <span class="s4"># argv.pop(log_idx)</span>
+        <span class="s4"># logLevel = argv.pop(log_idx)</span>
+        <span class="s1">logLevel = argv[log_idx + </span><span class="s6">1</span><span class="s1">]</span>
+    <span class="s1">logging.basicConfig(level=getattr(logging</span><span class="s2">, </span><span class="s1">logLevel)</span><span class="s2">,</span>
+                        <span class="s1">format=</span><span class="s3">&quot;%(levelname)s:%(module)s:%(lineno)d:%(message)s&quot;</span><span class="s1">)</span>
+
+    <span class="s1">d = tqdm.__init__.__doc__ + CLI_EXTRA_DOC</span>
+
+    <span class="s1">opt_types = dict(RE_OPTS.findall(d))</span>
+    <span class="s4"># opt_types['delim'] = 'chr'</span>
+
+    <span class="s2">for </span><span class="s1">o </span><span class="s2">in </span><span class="s1">UNSUPPORTED_OPTS:</span>
+        <span class="s1">opt_types.pop(o)</span>
+
+    <span class="s1">log.debug(sorted(opt_types.items()))</span>
+
+    <span class="s4"># d = RE_OPTS.sub(r'  --\1=&lt;\1&gt;  : \2', d)</span>
+    <span class="s1">split = RE_OPTS.split(d)</span>
+    <span class="s1">opt_types_desc = zip(split[</span><span class="s6">1</span><span class="s1">::</span><span class="s6">3</span><span class="s1">]</span><span class="s2">, </span><span class="s1">split[</span><span class="s6">2</span><span class="s1">::</span><span class="s6">3</span><span class="s1">]</span><span class="s2">, </span><span class="s1">split[</span><span class="s6">3</span><span class="s1">::</span><span class="s6">3</span><span class="s1">])</span>
+    <span class="s1">d = </span><span class="s3">''</span><span class="s1">.join((</span><span class="s3">'</span><span class="s2">\n  </span><span class="s3">--{0}  : {2}{3}' </span><span class="s2">if </span><span class="s1">otd[</span><span class="s6">1</span><span class="s1">] == </span><span class="s3">'bool' </span><span class="s2">else</span>
+                 <span class="s3">'</span><span class="s2">\n  </span><span class="s3">--{0}=&lt;{1}&gt;  : {2}{3}'</span><span class="s1">).format(</span>
+                     <span class="s1">otd[</span><span class="s6">0</span><span class="s1">].replace(</span><span class="s3">'_'</span><span class="s2">, </span><span class="s3">'-'</span><span class="s1">)</span><span class="s2">, </span><span class="s1">otd[</span><span class="s6">0</span><span class="s1">]</span><span class="s2">, </span><span class="s1">*otd[</span><span class="s6">1</span><span class="s1">:])</span>
+                <span class="s2">for </span><span class="s1">otd </span><span class="s2">in </span><span class="s1">opt_types_desc </span><span class="s2">if </span><span class="s1">otd[</span><span class="s6">0</span><span class="s1">] </span><span class="s2">not in </span><span class="s1">UNSUPPORTED_OPTS)</span>
+
+    <span class="s1">help_short = </span><span class="s3">&quot;Usage:</span><span class="s2">\n  </span><span class="s3">tqdm [--help | options]</span><span class="s2">\n</span><span class="s3">&quot;</span>
+    <span class="s1">d = help_short + </span><span class="s3">&quot;&quot;&quot; 
+Options: 
+  -h, --help     Print this help and exit. 
+  -v, --version  Print version and exit. 
+&quot;&quot;&quot; </span><span class="s1">+ d.strip(</span><span class="s3">'</span><span class="s2">\n</span><span class="s3">'</span><span class="s1">) + </span><span class="s3">'</span><span class="s2">\n</span><span class="s3">'</span>
+
+    <span class="s4"># opts = docopt(d, version=__version__)</span>
+    <span class="s2">if </span><span class="s1">any(v </span><span class="s2">in </span><span class="s1">argv </span><span class="s2">for </span><span class="s1">v </span><span class="s2">in </span><span class="s1">(</span><span class="s3">'-v'</span><span class="s2">, </span><span class="s3">'--version'</span><span class="s1">)):</span>
+        <span class="s1">sys.stdout.write(__version__ + </span><span class="s3">'</span><span class="s2">\n</span><span class="s3">'</span><span class="s1">)</span>
+        <span class="s1">sys.exit(</span><span class="s6">0</span><span class="s1">)</span>
+    <span class="s2">elif </span><span class="s1">any(v </span><span class="s2">in </span><span class="s1">argv </span><span class="s2">for </span><span class="s1">v </span><span class="s2">in </span><span class="s1">(</span><span class="s3">'-h'</span><span class="s2">, </span><span class="s3">'--help'</span><span class="s1">)):</span>
+        <span class="s1">sys.stdout.write(d + </span><span class="s3">'</span><span class="s2">\n</span><span class="s3">'</span><span class="s1">)</span>
+        <span class="s1">sys.exit(</span><span class="s6">0</span><span class="s1">)</span>
+    <span class="s2">elif </span><span class="s1">argv </span><span class="s2">and </span><span class="s1">argv[</span><span class="s6">0</span><span class="s1">][:</span><span class="s6">2</span><span class="s1">] != </span><span class="s3">'--'</span><span class="s1">:</span>
+        <span class="s1">sys.stderr.write(</span><span class="s3">f&quot;Error:Unknown argument:</span><span class="s2">{</span><span class="s1">argv[</span><span class="s6">0</span><span class="s1">]</span><span class="s2">}\n{</span><span class="s1">help_short</span><span class="s2">}</span><span class="s3">&quot;</span><span class="s1">)</span>
+
+    <span class="s1">argv = RE_SHLEX.split(</span><span class="s3">' '</span><span class="s1">.join([</span><span class="s3">&quot;tqdm&quot;</span><span class="s1">] + argv))</span>
+    <span class="s1">opts = dict(zip(argv[</span><span class="s6">1</span><span class="s1">::</span><span class="s6">3</span><span class="s1">]</span><span class="s2">, </span><span class="s1">argv[</span><span class="s6">3</span><span class="s1">::</span><span class="s6">3</span><span class="s1">]))</span>
+
+    <span class="s1">log.debug(opts)</span>
+    <span class="s1">opts.pop(</span><span class="s3">'log'</span><span class="s2">, True</span><span class="s1">)</span>
+
+    <span class="s1">tqdm_args = {</span><span class="s3">'file'</span><span class="s1">: fp}</span>
+    <span class="s2">try</span><span class="s1">:</span>
+        <span class="s2">for </span><span class="s1">(o</span><span class="s2">, </span><span class="s1">v) </span><span class="s2">in </span><span class="s1">opts.items():</span>
+            <span class="s1">o = o.replace(</span><span class="s3">'-'</span><span class="s2">, </span><span class="s3">'_'</span><span class="s1">)</span>
+            <span class="s2">try</span><span class="s1">:</span>
+                <span class="s1">tqdm_args[o] = cast(v</span><span class="s2">, </span><span class="s1">opt_types[o])</span>
+            <span class="s2">except </span><span class="s1">KeyError </span><span class="s2">as </span><span class="s1">e:</span>
+                <span class="s2">raise </span><span class="s1">TqdmKeyError(str(e))</span>
+        <span class="s1">log.debug(</span><span class="s3">'args:' </span><span class="s1">+ str(tqdm_args))</span>
+
+        <span class="s1">delim_per_char = tqdm_args.pop(</span><span class="s3">'bytes'</span><span class="s2">, False</span><span class="s1">)</span>
+        <span class="s1">update = tqdm_args.pop(</span><span class="s3">'update'</span><span class="s2">, False</span><span class="s1">)</span>
+        <span class="s1">update_to = tqdm_args.pop(</span><span class="s3">'update_to'</span><span class="s2">, False</span><span class="s1">)</span>
+        <span class="s2">if </span><span class="s1">sum((delim_per_char</span><span class="s2">, </span><span class="s1">update</span><span class="s2">, </span><span class="s1">update_to)) &gt; </span><span class="s6">1</span><span class="s1">:</span>
+            <span class="s2">raise </span><span class="s1">TqdmKeyError(</span><span class="s3">&quot;Can only have one of --bytes --update --update_to&quot;</span><span class="s1">)</span>
+    <span class="s2">except </span><span class="s1">Exception:</span>
+        <span class="s1">fp.write(</span><span class="s3">&quot;</span><span class="s2">\n</span><span class="s3">Error:</span><span class="s2">\n</span><span class="s3">&quot; </span><span class="s1">+ help_short)</span>
+        <span class="s1">stdin</span><span class="s2">, </span><span class="s1">stdout_write = sys.stdin</span><span class="s2">, </span><span class="s1">sys.stdout.write</span>
+        <span class="s2">for </span><span class="s1">i </span><span class="s2">in </span><span class="s1">stdin:</span>
+            <span class="s1">stdout_write(i)</span>
+        <span class="s2">raise</span>
+    <span class="s2">else</span><span class="s1">:</span>
+        <span class="s1">buf_size = tqdm_args.pop(</span><span class="s3">'buf_size'</span><span class="s2">, </span><span class="s6">256</span><span class="s1">)</span>
+        <span class="s1">delim = tqdm_args.pop(</span><span class="s3">'delim'</span><span class="s2">, </span><span class="s5">b'</span><span class="s2">\\</span><span class="s5">n'</span><span class="s1">)</span>
+        <span class="s1">tee = tqdm_args.pop(</span><span class="s3">'tee'</span><span class="s2">, False</span><span class="s1">)</span>
+        <span class="s1">manpath = tqdm_args.pop(</span><span class="s3">'manpath'</span><span class="s2">, None</span><span class="s1">)</span>
+        <span class="s1">comppath = tqdm_args.pop(</span><span class="s3">'comppath'</span><span class="s2">, None</span><span class="s1">)</span>
+        <span class="s2">if </span><span class="s1">tqdm_args.pop(</span><span class="s3">'null'</span><span class="s2">, False</span><span class="s1">):</span>
+            <span class="s2">class </span><span class="s1">stdout(object):</span>
+                <span class="s1">@staticmethod</span>
+                <span class="s2">def </span><span class="s1">write(_):</span>
+                    <span class="s2">pass</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">stdout = sys.stdout</span>
+            <span class="s1">stdout = getattr(stdout</span><span class="s2">, </span><span class="s3">'buffer'</span><span class="s2">, </span><span class="s1">stdout)</span>
+        <span class="s1">stdin = getattr(sys.stdin</span><span class="s2">, </span><span class="s3">'buffer'</span><span class="s2">, </span><span class="s1">sys.stdin)</span>
+        <span class="s2">if </span><span class="s1">manpath </span><span class="s2">or </span><span class="s1">comppath:</span>
+            <span class="s2">from </span><span class="s1">importlib </span><span class="s2">import </span><span class="s1">resources</span>
+            <span class="s2">from </span><span class="s1">os </span><span class="s2">import </span><span class="s1">path</span>
+            <span class="s2">from </span><span class="s1">shutil </span><span class="s2">import </span><span class="s1">copyfile</span>
+
+            <span class="s2">def </span><span class="s1">cp(name</span><span class="s2">, </span><span class="s1">dst):</span>
+                <span class="s0">&quot;&quot;&quot;copy resource `name` to `dst`&quot;&quot;&quot;</span>
+                <span class="s2">if </span><span class="s1">hasattr(resources</span><span class="s2">, </span><span class="s3">'files'</span><span class="s1">):</span>
+                    <span class="s1">copyfile(str(resources.files(</span><span class="s3">'tqdm'</span><span class="s1">) / name)</span><span class="s2">, </span><span class="s1">dst)</span>
+                <span class="s2">else</span><span class="s1">:  </span><span class="s4"># py&lt;3.9</span>
+                    <span class="s2">with </span><span class="s1">resources.path(</span><span class="s3">'tqdm'</span><span class="s2">, </span><span class="s1">name) </span><span class="s2">as </span><span class="s1">src:</span>
+                        <span class="s1">copyfile(str(src)</span><span class="s2">, </span><span class="s1">dst)</span>
+                <span class="s1">log.info(</span><span class="s3">&quot;written:%s&quot;</span><span class="s2">, </span><span class="s1">dst)</span>
+            <span class="s2">if </span><span class="s1">manpath </span><span class="s2">is not None</span><span class="s1">:</span>
+                <span class="s1">cp(</span><span class="s3">'tqdm.1'</span><span class="s2">, </span><span class="s1">path.join(manpath</span><span class="s2">, </span><span class="s3">'tqdm.1'</span><span class="s1">))</span>
+            <span class="s2">if </span><span class="s1">comppath </span><span class="s2">is not None</span><span class="s1">:</span>
+                <span class="s1">cp(</span><span class="s3">'completion.sh'</span><span class="s2">, </span><span class="s1">path.join(comppath</span><span class="s2">, </span><span class="s3">'tqdm_completion.sh'</span><span class="s1">))</span>
+            <span class="s1">sys.exit(</span><span class="s6">0</span><span class="s1">)</span>
+        <span class="s2">if </span><span class="s1">tee:</span>
+            <span class="s1">stdout_write = stdout.write</span>
+            <span class="s1">fp_write = getattr(fp</span><span class="s2">, </span><span class="s3">'buffer'</span><span class="s2">, </span><span class="s1">fp).write</span>
+
+            <span class="s2">class </span><span class="s1">stdout(object):  </span><span class="s4"># pylint: disable=function-redefined</span>
+                <span class="s1">@staticmethod</span>
+                <span class="s2">def </span><span class="s1">write(x):</span>
+                    <span class="s2">with </span><span class="s1">tqdm.external_write_mode(file=fp):</span>
+                        <span class="s1">fp_write(x)</span>
+                    <span class="s1">stdout_write(x)</span>
+        <span class="s2">if </span><span class="s1">delim_per_char:</span>
+            <span class="s1">tqdm_args.setdefault(</span><span class="s3">'unit'</span><span class="s2">, </span><span class="s3">'B'</span><span class="s1">)</span>
+            <span class="s1">tqdm_args.setdefault(</span><span class="s3">'unit_scale'</span><span class="s2">, True</span><span class="s1">)</span>
+            <span class="s1">tqdm_args.setdefault(</span><span class="s3">'unit_divisor'</span><span class="s2">, </span><span class="s6">1024</span><span class="s1">)</span>
+            <span class="s1">log.debug(tqdm_args)</span>
+            <span class="s2">with </span><span class="s1">tqdm(**tqdm_args) </span><span class="s2">as </span><span class="s1">t:</span>
+                <span class="s1">posix_pipe(stdin</span><span class="s2">, </span><span class="s1">stdout</span><span class="s2">, </span><span class="s3">''</span><span class="s2">, </span><span class="s1">buf_size</span><span class="s2">, </span><span class="s1">t.update)</span>
+        <span class="s2">elif </span><span class="s1">delim == </span><span class="s5">b'</span><span class="s2">\\</span><span class="s5">n'</span><span class="s1">:</span>
+            <span class="s1">log.debug(tqdm_args)</span>
+            <span class="s1">write = stdout.write</span>
+            <span class="s2">if </span><span class="s1">update </span><span class="s2">or </span><span class="s1">update_to:</span>
+                <span class="s2">with </span><span class="s1">tqdm(**tqdm_args) </span><span class="s2">as </span><span class="s1">t:</span>
+                    <span class="s2">if </span><span class="s1">update:</span>
+                        <span class="s2">def </span><span class="s1">callback(i):</span>
+                            <span class="s1">t.update(numeric(i.decode()))</span>
+                    <span class="s2">else</span><span class="s1">:  </span><span class="s4"># update_to</span>
+                        <span class="s2">def </span><span class="s1">callback(i):</span>
+                            <span class="s1">t.update(numeric(i.decode()) - t.n)</span>
+                    <span class="s2">for </span><span class="s1">i </span><span class="s2">in </span><span class="s1">stdin:</span>
+                        <span class="s1">write(i)</span>
+                        <span class="s1">callback(i)</span>
+            <span class="s2">else</span><span class="s1">:</span>
+                <span class="s2">for </span><span class="s1">i </span><span class="s2">in </span><span class="s1">tqdm(stdin</span><span class="s2">, </span><span class="s1">**tqdm_args):</span>
+                    <span class="s1">write(i)</span>
+        <span class="s2">else</span><span class="s1">:</span>
+            <span class="s1">log.debug(tqdm_args)</span>
+            <span class="s2">with </span><span class="s1">tqdm(**tqdm_args) </span><span class="s2">as </span><span class="s1">t:</span>
+                <span class="s1">callback_len = </span><span class="s2">False</span>
+                <span class="s2">if </span><span class="s1">update:</span>
+                    <span class="s2">def </span><span class="s1">callback(i):</span>
+                        <span class="s1">t.update(numeric(i.decode()))</span>
+                <span class="s2">elif </span><span class="s1">update_to:</span>
+                    <span class="s2">def </span><span class="s1">callback(i):</span>
+                        <span class="s1">t.update(numeric(i.decode()) - t.n)</span>
+                <span class="s2">else</span><span class="s1">:</span>
+                    <span class="s1">callback = t.update</span>
+                    <span class="s1">callback_len = </span><span class="s2">True</span>
+                <span class="s1">posix_pipe(stdin</span><span class="s2">, </span><span class="s1">stdout</span><span class="s2">, </span><span class="s1">delim</span><span class="s2">, </span><span class="s1">buf_size</span><span class="s2">, </span><span class="s1">callback</span><span class="s2">, </span><span class="s1">callback_len)</span>
+</pre>
+</body>
+</html>

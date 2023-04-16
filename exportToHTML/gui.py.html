@@ -1,0 +1,208 @@
+<html>
+<head>
+<title>gui.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #629755; font-style: italic;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #808080;}
+.s3 { color: #cc7832;}
+.s4 { color: #6a8759;}
+.s5 { color: #6897bb;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+gui.py</font>
+</center></td></tr></table>
+<pre><span class="s0">&quot;&quot;&quot; 
+Matplotlib GUI progressbar decorator for iterators. 
+ 
+Usage: 
+&gt;&gt;&gt; from tqdm.gui import trange, tqdm 
+&gt;&gt;&gt; for i in trange(10): 
+...     ... 
+&quot;&quot;&quot;</span>
+<span class="s2"># future division is important to divide integers and get as</span>
+<span class="s2"># a result precise floating numbers (instead of truncated int)</span>
+<span class="s3">import </span><span class="s1">re</span>
+<span class="s3">from </span><span class="s1">warnings </span><span class="s3">import </span><span class="s1">warn</span>
+
+<span class="s2"># to inherit from the tqdm class</span>
+<span class="s3">from </span><span class="s1">.std </span><span class="s3">import </span><span class="s1">TqdmExperimentalWarning</span>
+<span class="s3">from </span><span class="s1">.std </span><span class="s3">import </span><span class="s1">tqdm </span><span class="s3">as </span><span class="s1">std_tqdm</span>
+
+<span class="s2"># import compatibility functions and utilities</span>
+
+<span class="s1">__author__ = {</span><span class="s4">&quot;github.com/&quot;</span><span class="s1">: [</span><span class="s4">&quot;casperdcl&quot;</span><span class="s3">, </span><span class="s4">&quot;lrq3000&quot;</span><span class="s1">]}</span>
+<span class="s1">__all__ = [</span><span class="s4">'tqdm_gui'</span><span class="s3">, </span><span class="s4">'tgrange'</span><span class="s3">, </span><span class="s4">'tqdm'</span><span class="s3">, </span><span class="s4">'trange'</span><span class="s1">]</span>
+
+
+<span class="s3">class </span><span class="s1">tqdm_gui(std_tqdm):  </span><span class="s2"># pragma: no cover</span>
+    <span class="s0">&quot;&quot;&quot;Experimental Matplotlib GUI version of tqdm!&quot;&quot;&quot;</span>
+    <span class="s2"># TODO: @classmethod: write() on GUI?</span>
+    <span class="s3">def </span><span class="s1">__init__(self</span><span class="s3">, </span><span class="s1">*args</span><span class="s3">, </span><span class="s1">**kwargs):</span>
+        <span class="s3">from </span><span class="s1">collections </span><span class="s3">import </span><span class="s1">deque</span>
+
+        <span class="s3">import </span><span class="s1">matplotlib </span><span class="s3">as </span><span class="s1">mpl</span>
+        <span class="s3">import </span><span class="s1">matplotlib.pyplot </span><span class="s3">as </span><span class="s1">plt</span>
+        <span class="s1">kwargs = kwargs.copy()</span>
+        <span class="s1">kwargs[</span><span class="s4">'gui'</span><span class="s1">] = </span><span class="s3">True</span>
+        <span class="s1">colour = kwargs.pop(</span><span class="s4">'colour'</span><span class="s3">, </span><span class="s4">'g'</span><span class="s1">)</span>
+        <span class="s1">super(tqdm_gui</span><span class="s3">, </span><span class="s1">self).__init__(*args</span><span class="s3">, </span><span class="s1">**kwargs)</span>
+
+        <span class="s3">if </span><span class="s1">self.disable:</span>
+            <span class="s3">return</span>
+
+        <span class="s1">warn(</span><span class="s4">&quot;GUI is experimental/alpha&quot;</span><span class="s3">, </span><span class="s1">TqdmExperimentalWarning</span><span class="s3">, </span><span class="s1">stacklevel=</span><span class="s5">2</span><span class="s1">)</span>
+        <span class="s1">self.mpl = mpl</span>
+        <span class="s1">self.plt = plt</span>
+
+        <span class="s2"># Remember if external environment uses toolbars</span>
+        <span class="s1">self.toolbar = self.mpl.rcParams[</span><span class="s4">'toolbar'</span><span class="s1">]</span>
+        <span class="s1">self.mpl.rcParams[</span><span class="s4">'toolbar'</span><span class="s1">] = </span><span class="s4">'None'</span>
+
+        <span class="s1">self.mininterval = max(self.mininterval</span><span class="s3">, </span><span class="s5">0.5</span><span class="s1">)</span>
+        <span class="s1">self.fig</span><span class="s3">, </span><span class="s1">ax = plt.subplots(figsize=(</span><span class="s5">9</span><span class="s3">, </span><span class="s5">2.2</span><span class="s1">))</span>
+        <span class="s2"># self.fig.subplots_adjust(bottom=0.2)</span>
+        <span class="s1">total = self.__len__()  </span><span class="s2"># avoids TypeError on None #971</span>
+        <span class="s3">if </span><span class="s1">total </span><span class="s3">is not None</span><span class="s1">:</span>
+            <span class="s1">self.xdata = []</span>
+            <span class="s1">self.ydata = []</span>
+            <span class="s1">self.zdata = []</span>
+        <span class="s3">else</span><span class="s1">:</span>
+            <span class="s1">self.xdata = deque([])</span>
+            <span class="s1">self.ydata = deque([])</span>
+            <span class="s1">self.zdata = deque([])</span>
+        <span class="s1">self.line1</span><span class="s3">, </span><span class="s1">= ax.plot(self.xdata</span><span class="s3">, </span><span class="s1">self.ydata</span><span class="s3">, </span><span class="s1">color=</span><span class="s4">'b'</span><span class="s1">)</span>
+        <span class="s1">self.line2</span><span class="s3">, </span><span class="s1">= ax.plot(self.xdata</span><span class="s3">, </span><span class="s1">self.zdata</span><span class="s3">, </span><span class="s1">color=</span><span class="s4">'k'</span><span class="s1">)</span>
+        <span class="s1">ax.set_ylim(</span><span class="s5">0</span><span class="s3">, </span><span class="s5">0.001</span><span class="s1">)</span>
+        <span class="s3">if </span><span class="s1">total </span><span class="s3">is not None</span><span class="s1">:</span>
+            <span class="s1">ax.set_xlim(</span><span class="s5">0</span><span class="s3">, </span><span class="s5">100</span><span class="s1">)</span>
+            <span class="s1">ax.set_xlabel(</span><span class="s4">&quot;percent&quot;</span><span class="s1">)</span>
+            <span class="s1">self.fig.legend((self.line1</span><span class="s3">, </span><span class="s1">self.line2)</span><span class="s3">, </span><span class="s1">(</span><span class="s4">&quot;cur&quot;</span><span class="s3">, </span><span class="s4">&quot;est&quot;</span><span class="s1">)</span><span class="s3">,</span>
+                            <span class="s1">loc=</span><span class="s4">'center right'</span><span class="s1">)</span>
+            <span class="s2"># progressbar</span>
+            <span class="s1">self.hspan = plt.axhspan(</span><span class="s5">0</span><span class="s3">, </span><span class="s5">0.001</span><span class="s3">, </span><span class="s1">xmin=</span><span class="s5">0</span><span class="s3">, </span><span class="s1">xmax=</span><span class="s5">0</span><span class="s3">, </span><span class="s1">color=colour)</span>
+        <span class="s3">else</span><span class="s1">:</span>
+            <span class="s2"># ax.set_xlim(-60, 0)</span>
+            <span class="s1">ax.set_xlim(</span><span class="s5">0</span><span class="s3">, </span><span class="s5">60</span><span class="s1">)</span>
+            <span class="s1">ax.invert_xaxis()</span>
+            <span class="s1">ax.set_xlabel(</span><span class="s4">&quot;seconds&quot;</span><span class="s1">)</span>
+            <span class="s1">ax.legend((</span><span class="s4">&quot;cur&quot;</span><span class="s3">, </span><span class="s4">&quot;est&quot;</span><span class="s1">)</span><span class="s3">, </span><span class="s1">loc=</span><span class="s4">'lower left'</span><span class="s1">)</span>
+        <span class="s1">ax.grid()</span>
+        <span class="s2"># ax.set_xlabel('seconds')</span>
+        <span class="s1">ax.set_ylabel((self.unit </span><span class="s3">if </span><span class="s1">self.unit </span><span class="s3">else </span><span class="s4">&quot;it&quot;</span><span class="s1">) + </span><span class="s4">&quot;/s&quot;</span><span class="s1">)</span>
+        <span class="s3">if </span><span class="s1">self.unit_scale:</span>
+            <span class="s1">plt.ticklabel_format(style=</span><span class="s4">'sci'</span><span class="s3">, </span><span class="s1">axis=</span><span class="s4">'y'</span><span class="s3">, </span><span class="s1">scilimits=(</span><span class="s5">0</span><span class="s3">, </span><span class="s5">0</span><span class="s1">))</span>
+            <span class="s1">ax.yaxis.get_offset_text().set_x(-</span><span class="s5">0.15</span><span class="s1">)</span>
+
+        <span class="s2"># Remember if external environment is interactive</span>
+        <span class="s1">self.wasion = plt.isinteractive()</span>
+        <span class="s1">plt.ion()</span>
+        <span class="s1">self.ax = ax</span>
+
+    <span class="s3">def </span><span class="s1">close(self):</span>
+        <span class="s3">if </span><span class="s1">self.disable:</span>
+            <span class="s3">return</span>
+
+        <span class="s1">self.disable = </span><span class="s3">True</span>
+
+        <span class="s3">with </span><span class="s1">self.get_lock():</span>
+            <span class="s1">self._instances.remove(self)</span>
+
+        <span class="s2"># Restore toolbars</span>
+        <span class="s1">self.mpl.rcParams[</span><span class="s4">'toolbar'</span><span class="s1">] = self.toolbar</span>
+        <span class="s2"># Return to non-interactive mode</span>
+        <span class="s3">if not </span><span class="s1">self.wasion:</span>
+            <span class="s1">self.plt.ioff()</span>
+        <span class="s3">if </span><span class="s1">self.leave:</span>
+            <span class="s1">self.display()</span>
+        <span class="s3">else</span><span class="s1">:</span>
+            <span class="s1">self.plt.close(self.fig)</span>
+
+    <span class="s3">def </span><span class="s1">clear(self</span><span class="s3">, </span><span class="s1">*_</span><span class="s3">, </span><span class="s1">**__):</span>
+        <span class="s3">pass</span>
+
+    <span class="s3">def </span><span class="s1">display(self</span><span class="s3">, </span><span class="s1">*_</span><span class="s3">, </span><span class="s1">**__):</span>
+        <span class="s1">n = self.n</span>
+        <span class="s1">cur_t = self._time()</span>
+        <span class="s1">elapsed = cur_t - self.start_t</span>
+        <span class="s1">delta_it = n - self.last_print_n</span>
+        <span class="s1">delta_t = cur_t - self.last_print_t</span>
+
+        <span class="s2"># Inline due to multiple calls</span>
+        <span class="s1">total = self.total</span>
+        <span class="s1">xdata = self.xdata</span>
+        <span class="s1">ydata = self.ydata</span>
+        <span class="s1">zdata = self.zdata</span>
+        <span class="s1">ax = self.ax</span>
+        <span class="s1">line1 = self.line1</span>
+        <span class="s1">line2 = self.line2</span>
+        <span class="s2"># instantaneous rate</span>
+        <span class="s1">y = delta_it / delta_t</span>
+        <span class="s2"># overall rate</span>
+        <span class="s1">z = n / elapsed</span>
+        <span class="s2"># update line data</span>
+        <span class="s1">xdata.append(n * </span><span class="s5">100.0 </span><span class="s1">/ total </span><span class="s3">if </span><span class="s1">total </span><span class="s3">else </span><span class="s1">cur_t)</span>
+        <span class="s1">ydata.append(y)</span>
+        <span class="s1">zdata.append(z)</span>
+
+        <span class="s2"># Discard old values</span>
+        <span class="s2"># xmin, xmax = ax.get_xlim()</span>
+        <span class="s2"># if (not total) and elapsed &gt; xmin * 1.1:</span>
+        <span class="s3">if </span><span class="s1">(</span><span class="s3">not </span><span class="s1">total) </span><span class="s3">and </span><span class="s1">elapsed &gt; </span><span class="s5">66</span><span class="s1">:</span>
+            <span class="s1">xdata.popleft()</span>
+            <span class="s1">ydata.popleft()</span>
+            <span class="s1">zdata.popleft()</span>
+
+        <span class="s1">ymin</span><span class="s3">, </span><span class="s1">ymax = ax.get_ylim()</span>
+        <span class="s3">if </span><span class="s1">y &gt; ymax </span><span class="s3">or </span><span class="s1">z &gt; ymax:</span>
+            <span class="s1">ymax = </span><span class="s5">1.1 </span><span class="s1">* y</span>
+            <span class="s1">ax.set_ylim(ymin</span><span class="s3">, </span><span class="s1">ymax)</span>
+            <span class="s1">ax.figure.canvas.draw()</span>
+
+        <span class="s3">if </span><span class="s1">total:</span>
+            <span class="s1">line1.set_data(xdata</span><span class="s3">, </span><span class="s1">ydata)</span>
+            <span class="s1">line2.set_data(xdata</span><span class="s3">, </span><span class="s1">zdata)</span>
+            <span class="s3">try</span><span class="s1">:</span>
+                <span class="s1">poly_lims = self.hspan.get_xy()</span>
+            <span class="s3">except </span><span class="s1">AttributeError:</span>
+                <span class="s1">self.hspan = self.plt.axhspan(</span><span class="s5">0</span><span class="s3">, </span><span class="s5">0.001</span><span class="s3">, </span><span class="s1">xmin=</span><span class="s5">0</span><span class="s3">, </span><span class="s1">xmax=</span><span class="s5">0</span><span class="s3">, </span><span class="s1">color=</span><span class="s4">'g'</span><span class="s1">)</span>
+                <span class="s1">poly_lims = self.hspan.get_xy()</span>
+            <span class="s1">poly_lims[</span><span class="s5">0</span><span class="s3">, </span><span class="s5">1</span><span class="s1">] = ymin</span>
+            <span class="s1">poly_lims[</span><span class="s5">1</span><span class="s3">, </span><span class="s5">1</span><span class="s1">] = ymax</span>
+            <span class="s1">poly_lims[</span><span class="s5">2</span><span class="s1">] = [n / total</span><span class="s3">, </span><span class="s1">ymax]</span>
+            <span class="s1">poly_lims[</span><span class="s5">3</span><span class="s1">] = [poly_lims[</span><span class="s5">2</span><span class="s3">, </span><span class="s5">0</span><span class="s1">]</span><span class="s3">, </span><span class="s1">ymin]</span>
+            <span class="s3">if </span><span class="s1">len(poly_lims) &gt; </span><span class="s5">4</span><span class="s1">:</span>
+                <span class="s1">poly_lims[</span><span class="s5">4</span><span class="s3">, </span><span class="s5">1</span><span class="s1">] = ymin</span>
+            <span class="s1">self.hspan.set_xy(poly_lims)</span>
+        <span class="s3">else</span><span class="s1">:</span>
+            <span class="s1">t_ago = [cur_t - i </span><span class="s3">for </span><span class="s1">i </span><span class="s3">in </span><span class="s1">xdata]</span>
+            <span class="s1">line1.set_data(t_ago</span><span class="s3">, </span><span class="s1">ydata)</span>
+            <span class="s1">line2.set_data(t_ago</span><span class="s3">, </span><span class="s1">zdata)</span>
+
+        <span class="s1">d = self.format_dict</span>
+        <span class="s2"># remove {bar}</span>
+        <span class="s1">d[</span><span class="s4">'bar_format'</span><span class="s1">] = (d[</span><span class="s4">'bar_format'</span><span class="s1">] </span><span class="s3">or </span><span class="s4">&quot;{l_bar}&lt;bar/&gt;{r_bar}&quot;</span><span class="s1">).replace(</span>
+            <span class="s4">&quot;{bar}&quot;</span><span class="s3">, </span><span class="s4">&quot;&lt;bar/&gt;&quot;</span><span class="s1">)</span>
+        <span class="s1">msg = self.format_meter(**d)</span>
+        <span class="s3">if </span><span class="s4">'&lt;bar/&gt;' </span><span class="s3">in </span><span class="s1">msg:</span>
+            <span class="s1">msg = </span><span class="s4">&quot;&quot;</span><span class="s1">.join(re.split(</span><span class="s4">r'\|?&lt;bar/&gt;\|?'</span><span class="s3">, </span><span class="s1">msg</span><span class="s3">, </span><span class="s5">1</span><span class="s1">))</span>
+        <span class="s1">ax.set_title(msg</span><span class="s3">, </span><span class="s1">fontname=</span><span class="s4">&quot;DejaVu Sans Mono&quot;</span><span class="s3">, </span><span class="s1">fontsize=</span><span class="s5">11</span><span class="s1">)</span>
+        <span class="s1">self.plt.pause(</span><span class="s5">1e-9</span><span class="s1">)</span>
+
+
+<span class="s3">def </span><span class="s1">tgrange(*args</span><span class="s3">, </span><span class="s1">**kwargs):</span>
+    <span class="s0">&quot;&quot;&quot;Shortcut for `tqdm.gui.tqdm(range(*args), **kwargs)`.&quot;&quot;&quot;</span>
+    <span class="s3">return </span><span class="s1">tqdm_gui(range(*args)</span><span class="s3">, </span><span class="s1">**kwargs)</span>
+
+
+<span class="s2"># Aliases</span>
+<span class="s1">tqdm = tqdm_gui</span>
+<span class="s1">trange = tgrange</span>
+</pre>
+</body>
+</html>

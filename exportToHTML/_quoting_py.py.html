@@ -1,0 +1,219 @@
+<html>
+<head>
+<title>_quoting_py.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cc7832;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #6a8759;}
+.s3 { color: #6897bb;}
+.s4 { color: #a5c261;}
+.s5 { color: #808080;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+_quoting_py.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">codecs</span>
+<span class="s0">import </span><span class="s1">re</span>
+<span class="s0">from </span><span class="s1">string </span><span class="s0">import </span><span class="s1">ascii_letters</span><span class="s0">, </span><span class="s1">ascii_lowercase</span><span class="s0">, </span><span class="s1">digits</span>
+<span class="s0">from </span><span class="s1">typing </span><span class="s0">import </span><span class="s1">Optional</span><span class="s0">, </span><span class="s1">cast</span>
+
+<span class="s1">BASCII_LOWERCASE = ascii_lowercase.encode(</span><span class="s2">&quot;ascii&quot;</span><span class="s1">)</span>
+<span class="s1">BPCT_ALLOWED = {</span><span class="s2">f&quot;%</span><span class="s0">{</span><span class="s1">i</span><span class="s0">:</span><span class="s2">02X</span><span class="s0">}</span><span class="s2">&quot;</span><span class="s1">.encode(</span><span class="s2">&quot;ascii&quot;</span><span class="s1">) </span><span class="s0">for </span><span class="s1">i </span><span class="s0">in </span><span class="s1">range(</span><span class="s3">256</span><span class="s1">)}</span>
+<span class="s1">GEN_DELIMS = </span><span class="s2">&quot;:/?#[]@&quot;</span>
+<span class="s1">SUB_DELIMS_WITHOUT_QS = </span><span class="s2">&quot;!$'()*,&quot;</span>
+<span class="s1">SUB_DELIMS = SUB_DELIMS_WITHOUT_QS + </span><span class="s2">&quot;+&amp;=;&quot;</span>
+<span class="s1">RESERVED = GEN_DELIMS + SUB_DELIMS</span>
+<span class="s1">UNRESERVED = ascii_letters + digits + </span><span class="s2">&quot;-._~&quot;</span>
+<span class="s1">ALLOWED = UNRESERVED + SUB_DELIMS_WITHOUT_QS</span>
+
+
+<span class="s1">_IS_HEX = re.compile(</span><span class="s4">b&quot;[A-Z0-9][A-Z0-9]&quot;</span><span class="s1">)</span>
+<span class="s1">_IS_HEX_STR = re.compile(</span><span class="s2">&quot;[A-Fa-f0-9][A-Fa-f0-9]&quot;</span><span class="s1">)</span>
+
+<span class="s1">utf8_decoder = codecs.getincrementaldecoder(</span><span class="s2">&quot;utf-8&quot;</span><span class="s1">)</span>
+
+
+<span class="s0">class </span><span class="s1">_Quoter:</span>
+    <span class="s0">def </span><span class="s1">__init__(</span>
+        <span class="s1">self</span><span class="s0">,</span>
+        <span class="s1">*</span><span class="s0">,</span>
+        <span class="s1">safe: str = </span><span class="s2">&quot;&quot;</span><span class="s0">,</span>
+        <span class="s1">protected: str = </span><span class="s2">&quot;&quot;</span><span class="s0">,</span>
+        <span class="s1">qs: bool = </span><span class="s0">False,</span>
+        <span class="s1">requote: bool = </span><span class="s0">True,</span>
+    <span class="s1">) -&gt; </span><span class="s0">None</span><span class="s1">:</span>
+        <span class="s1">self._safe = safe</span>
+        <span class="s1">self._protected = protected</span>
+        <span class="s1">self._qs = qs</span>
+        <span class="s1">self._requote = requote</span>
+
+    <span class="s0">def </span><span class="s1">__call__(self</span><span class="s0">, </span><span class="s1">val: Optional[str]) -&gt; Optional[str]:</span>
+        <span class="s0">if </span><span class="s1">val </span><span class="s0">is None</span><span class="s1">:</span>
+            <span class="s0">return None</span>
+        <span class="s0">if not </span><span class="s1">isinstance(val</span><span class="s0">, </span><span class="s1">str):</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span><span class="s2">&quot;Argument should be str&quot;</span><span class="s1">)</span>
+        <span class="s0">if not </span><span class="s1">val:</span>
+            <span class="s0">return </span><span class="s2">&quot;&quot;</span>
+        <span class="s1">bval = cast(str</span><span class="s0">, </span><span class="s1">val).encode(</span><span class="s2">&quot;utf8&quot;</span><span class="s0">, </span><span class="s1">errors=</span><span class="s2">&quot;ignore&quot;</span><span class="s1">)</span>
+        <span class="s1">ret = bytearray()</span>
+        <span class="s1">pct = bytearray()</span>
+        <span class="s1">safe = self._safe</span>
+        <span class="s1">safe += ALLOWED</span>
+        <span class="s0">if not </span><span class="s1">self._qs:</span>
+            <span class="s1">safe += </span><span class="s2">&quot;+&amp;=;&quot;</span>
+        <span class="s1">safe += self._protected</span>
+        <span class="s1">bsafe = safe.encode(</span><span class="s2">&quot;ascii&quot;</span><span class="s1">)</span>
+        <span class="s1">idx = </span><span class="s3">0</span>
+        <span class="s0">while </span><span class="s1">idx &lt; len(bval):</span>
+            <span class="s1">ch = bval[idx]</span>
+            <span class="s1">idx += </span><span class="s3">1</span>
+
+            <span class="s0">if </span><span class="s1">pct:</span>
+                <span class="s0">if </span><span class="s1">ch </span><span class="s0">in </span><span class="s1">BASCII_LOWERCASE:</span>
+                    <span class="s1">ch = ch - </span><span class="s3">32  </span><span class="s5"># convert to uppercase</span>
+                <span class="s1">pct.append(ch)</span>
+                <span class="s0">if </span><span class="s1">len(pct) == </span><span class="s3">3</span><span class="s1">:  </span><span class="s5"># pragma: no branch   # peephole optimizer</span>
+                    <span class="s1">buf = pct[</span><span class="s3">1</span><span class="s1">:]</span>
+                    <span class="s0">if not </span><span class="s1">_IS_HEX.match(buf):</span>
+                        <span class="s1">ret.extend(</span><span class="s4">b&quot;%25&quot;</span><span class="s1">)</span>
+                        <span class="s1">pct.clear()</span>
+                        <span class="s1">idx -= </span><span class="s3">2</span>
+                        <span class="s0">continue</span>
+                    <span class="s0">try</span><span class="s1">:</span>
+                        <span class="s1">unquoted = chr(int(pct[</span><span class="s3">1</span><span class="s1">:].decode(</span><span class="s2">&quot;ascii&quot;</span><span class="s1">)</span><span class="s0">, </span><span class="s1">base=</span><span class="s3">16</span><span class="s1">))</span>
+                    <span class="s0">except </span><span class="s1">ValueError:</span>
+                        <span class="s1">ret.extend(</span><span class="s4">b&quot;%25&quot;</span><span class="s1">)</span>
+                        <span class="s1">pct.clear()</span>
+                        <span class="s1">idx -= </span><span class="s3">2</span>
+                        <span class="s0">continue</span>
+
+                    <span class="s0">if </span><span class="s1">unquoted </span><span class="s0">in </span><span class="s1">self._protected:</span>
+                        <span class="s1">ret.extend(pct)</span>
+                    <span class="s0">elif </span><span class="s1">unquoted </span><span class="s0">in </span><span class="s1">safe:</span>
+                        <span class="s1">ret.append(ord(unquoted))</span>
+                    <span class="s0">else</span><span class="s1">:</span>
+                        <span class="s1">ret.extend(pct)</span>
+                    <span class="s1">pct.clear()</span>
+
+                <span class="s5"># special case, if we have only one char after &quot;%&quot;</span>
+                <span class="s0">elif </span><span class="s1">len(pct) == </span><span class="s3">2 </span><span class="s0">and </span><span class="s1">idx == len(bval):</span>
+                    <span class="s1">ret.extend(</span><span class="s4">b&quot;%25&quot;</span><span class="s1">)</span>
+                    <span class="s1">pct.clear()</span>
+                    <span class="s1">idx -= </span><span class="s3">1</span>
+
+                <span class="s0">continue</span>
+
+            <span class="s0">elif </span><span class="s1">ch == ord(</span><span class="s2">&quot;%&quot;</span><span class="s1">) </span><span class="s0">and </span><span class="s1">self._requote:</span>
+                <span class="s1">pct.clear()</span>
+                <span class="s1">pct.append(ch)</span>
+
+                <span class="s5"># special case if &quot;%&quot; is last char</span>
+                <span class="s0">if </span><span class="s1">idx == len(bval):</span>
+                    <span class="s1">ret.extend(</span><span class="s4">b&quot;%25&quot;</span><span class="s1">)</span>
+
+                <span class="s0">continue</span>
+
+            <span class="s0">if </span><span class="s1">self._qs:</span>
+                <span class="s0">if </span><span class="s1">ch == ord(</span><span class="s2">&quot; &quot;</span><span class="s1">):</span>
+                    <span class="s1">ret.append(ord(</span><span class="s2">&quot;+&quot;</span><span class="s1">))</span>
+                    <span class="s0">continue</span>
+            <span class="s0">if </span><span class="s1">ch </span><span class="s0">in </span><span class="s1">bsafe:</span>
+                <span class="s1">ret.append(ch)</span>
+                <span class="s0">continue</span>
+
+            <span class="s1">ret.extend((</span><span class="s2">f&quot;%</span><span class="s0">{</span><span class="s1">ch</span><span class="s0">:</span><span class="s2">02X</span><span class="s0">}</span><span class="s2">&quot;</span><span class="s1">).encode(</span><span class="s2">&quot;ascii&quot;</span><span class="s1">))</span>
+
+        <span class="s1">ret2 = ret.decode(</span><span class="s2">&quot;ascii&quot;</span><span class="s1">)</span>
+        <span class="s0">if </span><span class="s1">ret2 == val:</span>
+            <span class="s0">return </span><span class="s1">val</span>
+        <span class="s0">return </span><span class="s1">ret2</span>
+
+
+<span class="s0">class </span><span class="s1">_Unquoter:</span>
+    <span class="s0">def </span><span class="s1">__init__(self</span><span class="s0">, </span><span class="s1">*</span><span class="s0">, </span><span class="s1">unsafe: str = </span><span class="s2">&quot;&quot;</span><span class="s0">, </span><span class="s1">qs: bool = </span><span class="s0">False</span><span class="s1">) -&gt; </span><span class="s0">None</span><span class="s1">:</span>
+        <span class="s1">self._unsafe = unsafe</span>
+        <span class="s1">self._qs = qs</span>
+        <span class="s1">self._quoter = _Quoter()</span>
+        <span class="s1">self._qs_quoter = _Quoter(qs=</span><span class="s0">True</span><span class="s1">)</span>
+
+    <span class="s0">def </span><span class="s1">__call__(self</span><span class="s0">, </span><span class="s1">val: Optional[str]) -&gt; Optional[str]:</span>
+        <span class="s0">if </span><span class="s1">val </span><span class="s0">is None</span><span class="s1">:</span>
+            <span class="s0">return None</span>
+        <span class="s0">if not </span><span class="s1">isinstance(val</span><span class="s0">, </span><span class="s1">str):</span>
+            <span class="s0">raise </span><span class="s1">TypeError(</span><span class="s2">&quot;Argument should be str&quot;</span><span class="s1">)</span>
+        <span class="s0">if not </span><span class="s1">val:</span>
+            <span class="s0">return </span><span class="s2">&quot;&quot;</span>
+        <span class="s1">decoder = cast(codecs.BufferedIncrementalDecoder</span><span class="s0">, </span><span class="s1">utf8_decoder())</span>
+        <span class="s1">ret = []</span>
+        <span class="s1">idx = </span><span class="s3">0</span>
+        <span class="s0">while </span><span class="s1">idx &lt; len(val):</span>
+            <span class="s1">ch = val[idx]</span>
+            <span class="s1">idx += </span><span class="s3">1</span>
+            <span class="s0">if </span><span class="s1">ch == </span><span class="s2">&quot;%&quot; </span><span class="s0">and </span><span class="s1">idx &lt;= len(val) - </span><span class="s3">2</span><span class="s1">:</span>
+                <span class="s1">pct = val[idx : idx + </span><span class="s3">2</span><span class="s1">]</span>
+                <span class="s0">if </span><span class="s1">_IS_HEX_STR.fullmatch(pct):</span>
+                    <span class="s1">b = bytes([int(pct</span><span class="s0">, </span><span class="s1">base=</span><span class="s3">16</span><span class="s1">)])</span>
+                    <span class="s1">idx += </span><span class="s3">2</span>
+                    <span class="s0">try</span><span class="s1">:</span>
+                        <span class="s1">unquoted = decoder.decode(b)</span>
+                    <span class="s0">except </span><span class="s1">UnicodeDecodeError:</span>
+                        <span class="s1">start_pct = idx - </span><span class="s3">3 </span><span class="s1">- len(decoder.buffer) * </span><span class="s3">3</span>
+                        <span class="s1">ret.append(val[start_pct : idx - </span><span class="s3">3</span><span class="s1">])</span>
+                        <span class="s1">decoder.reset()</span>
+                        <span class="s0">try</span><span class="s1">:</span>
+                            <span class="s1">unquoted = decoder.decode(b)</span>
+                        <span class="s0">except </span><span class="s1">UnicodeDecodeError:</span>
+                            <span class="s1">ret.append(val[idx - </span><span class="s3">3 </span><span class="s1">: idx])</span>
+                            <span class="s0">continue</span>
+                    <span class="s0">if not </span><span class="s1">unquoted:</span>
+                        <span class="s0">continue</span>
+                    <span class="s0">if </span><span class="s1">self._qs </span><span class="s0">and </span><span class="s1">unquoted </span><span class="s0">in </span><span class="s2">&quot;+=&amp;;&quot;</span><span class="s1">:</span>
+                        <span class="s1">to_add = self._qs_quoter(unquoted)</span>
+                        <span class="s0">if </span><span class="s1">to_add </span><span class="s0">is None</span><span class="s1">:  </span><span class="s5"># pragma: no cover</span>
+                            <span class="s0">raise </span><span class="s1">RuntimeError(</span><span class="s2">&quot;Cannot quote None&quot;</span><span class="s1">)</span>
+                        <span class="s1">ret.append(to_add)</span>
+                    <span class="s0">elif </span><span class="s1">unquoted </span><span class="s0">in </span><span class="s1">self._unsafe:</span>
+                        <span class="s1">to_add = self._quoter(unquoted)</span>
+                        <span class="s0">if </span><span class="s1">to_add </span><span class="s0">is None</span><span class="s1">:  </span><span class="s5"># pragma: no cover</span>
+                            <span class="s0">raise </span><span class="s1">RuntimeError(</span><span class="s2">&quot;Cannot quote None&quot;</span><span class="s1">)</span>
+                        <span class="s1">ret.append(to_add)</span>
+                    <span class="s0">else</span><span class="s1">:</span>
+                        <span class="s1">ret.append(unquoted)</span>
+                    <span class="s0">continue</span>
+
+            <span class="s0">if </span><span class="s1">decoder.buffer:</span>
+                <span class="s1">start_pct = idx - </span><span class="s3">1 </span><span class="s1">- len(decoder.buffer) * </span><span class="s3">3</span>
+                <span class="s1">ret.append(val[start_pct : idx - </span><span class="s3">1</span><span class="s1">])</span>
+                <span class="s1">decoder.reset()</span>
+
+            <span class="s0">if </span><span class="s1">ch == </span><span class="s2">&quot;+&quot;</span><span class="s1">:</span>
+                <span class="s0">if not </span><span class="s1">self._qs </span><span class="s0">or </span><span class="s1">ch </span><span class="s0">in </span><span class="s1">self._unsafe:</span>
+                    <span class="s1">ret.append(</span><span class="s2">&quot;+&quot;</span><span class="s1">)</span>
+                <span class="s0">else</span><span class="s1">:</span>
+                    <span class="s1">ret.append(</span><span class="s2">&quot; &quot;</span><span class="s1">)</span>
+                <span class="s0">continue</span>
+
+            <span class="s0">if </span><span class="s1">ch </span><span class="s0">in </span><span class="s1">self._unsafe:</span>
+                <span class="s1">ret.append(</span><span class="s2">&quot;%&quot;</span><span class="s1">)</span>
+                <span class="s1">h = hex(ord(ch)).upper()[</span><span class="s3">2</span><span class="s1">:]</span>
+                <span class="s0">for </span><span class="s1">ch </span><span class="s0">in </span><span class="s1">h:</span>
+                    <span class="s1">ret.append(ch)</span>
+                <span class="s0">continue</span>
+
+            <span class="s1">ret.append(ch)</span>
+
+        <span class="s0">if </span><span class="s1">decoder.buffer:</span>
+            <span class="s1">ret.append(val[-len(decoder.buffer) * </span><span class="s3">3 </span><span class="s1">:])</span>
+
+        <span class="s1">ret2 = </span><span class="s2">&quot;&quot;</span><span class="s1">.join(ret)</span>
+        <span class="s0">if </span><span class="s1">ret2 == val:</span>
+            <span class="s0">return </span><span class="s1">val</span>
+        <span class="s0">return </span><span class="s1">ret2</span>
+</pre>
+</body>
+</html>

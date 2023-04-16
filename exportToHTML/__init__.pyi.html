@@ -1,0 +1,86 @@
+<html>
+<head>
+<title>__init__.pyi</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cc7832;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #808080;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+__init__.pyi</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">typing </span><span class="s0">import </span><span class="s1">(</span>
+    <span class="s1">Any</span><span class="s0">,</span>
+    <span class="s1">Callable</span><span class="s0">,</span>
+    <span class="s1">Dict</span><span class="s0">,</span>
+    <span class="s1">Mapping</span><span class="s0">,</span>
+    <span class="s1">Optional</span><span class="s0">,</span>
+    <span class="s1">Sequence</span><span class="s0">,</span>
+    <span class="s1">Tuple</span><span class="s0">,</span>
+    <span class="s1">Type</span><span class="s0">,</span>
+<span class="s1">)</span>
+
+<span class="s2"># Because we need to type our own stuff, we have to make everything from</span>
+<span class="s2"># attr explicitly public too.</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">__author__ </span><span class="s0">as </span><span class="s1">__author__</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">__copyright__ </span><span class="s0">as </span><span class="s1">__copyright__</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">__description__ </span><span class="s0">as </span><span class="s1">__description__</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">__email__ </span><span class="s0">as </span><span class="s1">__email__</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">__license__ </span><span class="s0">as </span><span class="s1">__license__</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">__title__ </span><span class="s0">as </span><span class="s1">__title__</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">__url__ </span><span class="s0">as </span><span class="s1">__url__</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">__version__ </span><span class="s0">as </span><span class="s1">__version__</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">__version_info__ </span><span class="s0">as </span><span class="s1">__version_info__</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">_FilterType</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">assoc </span><span class="s0">as </span><span class="s1">assoc</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">Attribute </span><span class="s0">as </span><span class="s1">Attribute</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">AttrsInstance </span><span class="s0">as </span><span class="s1">AttrsInstance</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">cmp_using </span><span class="s0">as </span><span class="s1">cmp_using</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">converters </span><span class="s0">as </span><span class="s1">converters</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">define </span><span class="s0">as </span><span class="s1">define</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">evolve </span><span class="s0">as </span><span class="s1">evolve</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">exceptions </span><span class="s0">as </span><span class="s1">exceptions</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">Factory </span><span class="s0">as </span><span class="s1">Factory</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">field </span><span class="s0">as </span><span class="s1">field</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">fields </span><span class="s0">as </span><span class="s1">fields</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">fields_dict </span><span class="s0">as </span><span class="s1">fields_dict</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">filters </span><span class="s0">as </span><span class="s1">filters</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">frozen </span><span class="s0">as </span><span class="s1">frozen</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">has </span><span class="s0">as </span><span class="s1">has</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">make_class </span><span class="s0">as </span><span class="s1">make_class</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">mutable </span><span class="s0">as </span><span class="s1">mutable</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">NOTHING </span><span class="s0">as </span><span class="s1">NOTHING</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">resolve_types </span><span class="s0">as </span><span class="s1">resolve_types</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">setters </span><span class="s0">as </span><span class="s1">setters</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">validate </span><span class="s0">as </span><span class="s1">validate</span>
+<span class="s0">from </span><span class="s1">attr </span><span class="s0">import </span><span class="s1">validators </span><span class="s0">as </span><span class="s1">validators</span>
+
+<span class="s2"># TODO: see definition of attr.asdict/astuple</span>
+<span class="s0">def </span><span class="s1">asdict(</span>
+    <span class="s1">inst: Any</span><span class="s0">,</span>
+    <span class="s1">recurse: bool = ...</span><span class="s0">,</span>
+    <span class="s1">filter: Optional[_FilterType[Any]] = ...</span><span class="s0">,</span>
+    <span class="s1">dict_factory: Type[Mapping[Any</span><span class="s0">, </span><span class="s1">Any]] = ...</span><span class="s0">,</span>
+    <span class="s1">retain_collection_types: bool = ...</span><span class="s0">,</span>
+    <span class="s1">value_serializer: Optional[</span>
+        <span class="s1">Callable[[type</span><span class="s0">, </span><span class="s1">Attribute[Any]</span><span class="s0">, </span><span class="s1">Any]</span><span class="s0">, </span><span class="s1">Any]</span>
+    <span class="s1">] = ...</span><span class="s0">,</span>
+    <span class="s1">tuple_keys: bool = ...</span><span class="s0">,</span>
+<span class="s1">) -&gt; Dict[str</span><span class="s0">, </span><span class="s1">Any]: ...</span>
+
+<span class="s2"># TODO: add support for returning NamedTuple from the mypy plugin</span>
+<span class="s0">def </span><span class="s1">astuple(</span>
+    <span class="s1">inst: Any</span><span class="s0">,</span>
+    <span class="s1">recurse: bool = ...</span><span class="s0">,</span>
+    <span class="s1">filter: Optional[_FilterType[Any]] = ...</span><span class="s0">,</span>
+    <span class="s1">tuple_factory: Type[Sequence[Any]] = ...</span><span class="s0">,</span>
+    <span class="s1">retain_collection_types: bool = ...</span><span class="s0">,</span>
+<span class="s1">) -&gt; Tuple[Any</span><span class="s0">, </span><span class="s1">...]: ...</span>
+</pre>
+</body>
+</html>
