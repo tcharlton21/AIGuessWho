@@ -2,8 +2,8 @@ import tkinter as tk
 
 from PIL import ImageTk, ImageDraw
 
-from ImageGeneration import get_images, place_images
-from chat import Chat
+from src.ImageGeneration import get_images, place_images
+from src.chat import Chat
 
 class UI:
     """
